@@ -15,29 +15,35 @@ func TestSet(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Close()
 
+	serverAddr := server.Addr()
+
 	// set pool
 	pool1 := &redis.Pool{
 		Dial: func() (redis.Conn, error) {
-			return redis.Dial("tcp", server.Addr())
+			return redis.Dial("tcp", serverAddr)
 		},
 	}
 
 	pool2 := &redis.Pool{
 		Dial: func() (redis.Conn, error) {
-			return redis.Dial("tcp", server.Addr())
+			return redis.Dial("tcp", serverAddr)
 		},
 	}
 
 	// set client
 	cli1, err := NewWithPool(Config{
 		CacheSize: 10000,
+		//StringBackend: "slot",
 	}, pool1)
 	require.NoError(t, err)
+	defer cli1.Close()
 
 	cli2, err := NewWithPool(Config{
 		CacheSize: 10000,
+		//StringBackend: "slot",
 	}, pool2)
 	require.NoError(t, err)
+	defer cli2.Close()
 
 	const (
 		key1      = "key1"

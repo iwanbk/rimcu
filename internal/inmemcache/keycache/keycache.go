@@ -3,41 +3,64 @@ package keycache
 import (
 	"time"
 
+	"github.com/hashicorp/golang-lru"
 	"github.com/iwanbk/rimcu/internal/notif"
-	"github.com/karlseguin/ccache"
 )
 
 type KeyCache struct {
-	cc *ccache.Cache
+	cc *lru.Cache
+}
+type cacheVal struct {
+	TsExp int64
+	Val   string
 }
 
-func New(maxSize int) *KeyCache {
-	return &KeyCache{
-		cc: ccache.New(ccache.Configure().MaxSize(int64(maxSize))),
+func New(maxSize int) (*KeyCache, error) {
+	cc, err := lru.New(maxSize)
+	if err != nil {
+		return nil, err
 	}
+	return &KeyCache{
+		cc: cc,
+	}, nil
 }
 
 func (kc *KeyCache) SetEx(key, val string, expSecond int) {
-	kc.cc.Set(key, val, time.Second*time.Duration(expSecond))
+
+	v := cacheVal{
+		TsExp: time.Now().Add(time.Duration(expSecond) * time.Second).UnixNano(),
+		Val:   val,
+	}
+
+	kc.cc.Add(key, v)
 }
 
 func (kc *KeyCache) Get(key string) (string, bool) {
-	item := kc.cc.Get(key)
-	if item == nil || item.Expired() {
+	// get value from Cache
+	cv, ok := kc.cc.Get(key)
+	if !ok {
 		return "", false
 	}
-	return item.Value().(string), true
+
+	v := cv.(cacheVal)
+
+	// check against tsExp
+	if time.Now().UnixNano() > v.TsExp {
+		kc.cc.Remove(key)
+		return "", false
+	}
+	return v.Val, true
 }
 
 func (kc *KeyCache) Del(key string) {
-	kc.cc.Delete(key)
+	kc.cc.Remove(key)
 }
 func (kc *KeyCache) Clear() {
-	kc.cc.Clear()
+	kc.cc.Purge()
 }
 
 func (kc *KeyCache) HandleNotif(nt *notif.Notif) {
-	kc.cc.Delete(nt.Key)
+	kc.Del(nt.Key)
 }
 
 func (kc *KeyCache) NewNotif(cliName []byte, key string) *notif.Notif {
@@ -45,5 +68,4 @@ func (kc *KeyCache) NewNotif(cliName []byte, key string) *notif.Notif {
 		ClientID: cliName,
 		Key:      key,
 	}
-
 }
