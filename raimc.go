@@ -29,6 +29,9 @@ type Client struct {
 	name []byte
 	cc   inmemcache.Cache // in memory cache for the string data type
 
+	// context
+	ctx        context.Context
+	cancelFunc context.CancelFunc
 	// lua scripts
 	luaSetex *redis.Script //setex command
 	luaDel   *redis.Script // del command
@@ -43,10 +46,11 @@ type Config struct {
 // NewWithPool creates new rimcu client with the given config and redigo pool
 func NewWithPool(cfg Config, pool *redis.Pool) (*Client, error) {
 	var (
-		cc  inmemcache.Cache
-		err error
+		cc          inmemcache.Cache
+		err         error
+		ctx, cancel = context.WithCancel(context.Background())
 	)
-	if cfg.StringBackend == "slot " {
+	if cfg.StringBackend == "slot" {
 		cc, err = slotcache.New(cfg.CacheSize)
 	} else {
 		cc = keycache.New(cfg.CacheSize)
@@ -56,14 +60,20 @@ func NewWithPool(cfg Config, pool *redis.Pool) (*Client, error) {
 	}
 
 	cli := &Client{
-		name:     xid.New().Bytes(),
-		pool:     pool,
-		cc:       cc,
-		luaSetex: redis.NewScript(1, scriptSetex),
-		luaDel:   redis.NewScript(1, scriptDel),
+		name:       xid.New().Bytes(),
+		pool:       pool,
+		cc:         cc,
+		ctx:        ctx,
+		cancelFunc: cancel,
+		luaSetex:   redis.NewScript(1, scriptSetex),
+		luaDel:     redis.NewScript(1, scriptDel),
 	}
 	err = cli.runSubscriber(context.TODO())
 	return cli, err
+}
+
+func (c *Client) Close() {
+	c.cancelFunc()
 }
 
 // SetEx set the value of the key with the given value and expiration in second
