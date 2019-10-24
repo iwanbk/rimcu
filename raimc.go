@@ -53,7 +53,7 @@ func NewWithPool(cfg Config, pool *redis.Pool) (*Client, error) {
 	if cfg.StringBackend == "slot" {
 		cc, err = slotcache.New(cfg.CacheSize)
 	} else {
-		cc = keycache.New(cfg.CacheSize)
+		cc, err = keycache.New(cfg.CacheSize)
 	}
 	if err != nil {
 		return nil, err

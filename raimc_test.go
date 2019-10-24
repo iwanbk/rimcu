@@ -32,15 +32,15 @@ func TestSet(t *testing.T) {
 
 	// set client
 	cli1, err := NewWithPool(Config{
-		CacheSize:     10000,
-		StringBackend: "slot",
+		CacheSize: 10000,
+		//StringBackend: "slot",
 	}, pool1)
 	require.NoError(t, err)
 	defer cli1.Close()
 
 	cli2, err := NewWithPool(Config{
-		CacheSize:     10000,
-		StringBackend: "slot",
+		CacheSize: 10000,
+		//StringBackend: "slot",
 	}, pool2)
 	require.NoError(t, err)
 	defer cli2.Close()
