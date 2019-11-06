@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSet(t *testing.T) {
+func TestStringsCacheSetGet(t *testing.T) {
 	server, err := miniredis.Run()
 	require.NoError(t, err)
 	defer server.Close()
@@ -31,16 +31,14 @@ func TestSet(t *testing.T) {
 	}
 
 	// set client
-	cli1, err := NewWithPool(Config{
+	cli1, err := NewStringsCache(StringsCacheConfig{
 		CacheSize: 10000,
-		//StringBackend: "slot",
 	}, pool1)
 	require.NoError(t, err)
 	defer cli1.Close()
 
-	cli2, err := NewWithPool(Config{
+	cli2, err := NewStringsCache(StringsCacheConfig{
 		CacheSize: 10000,
-		//StringBackend: "slot",
 	}, pool2)
 	require.NoError(t, err)
 	defer cli2.Close()
