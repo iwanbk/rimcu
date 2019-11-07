@@ -32,6 +32,5 @@ func (p *Pool) dial() (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn := newConn(c)
-	return conn, conn.Ping()
+	return newConn(c)
 }

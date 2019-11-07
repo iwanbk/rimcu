@@ -11,11 +11,11 @@ import (
 type Conn struct {
 	w      *resp3.Writer
 	rd     *resp3.Reader
-	respCh chan *resp3.Value
+	respCh chan *resp3.Value // TODO: add resp counter
 	stopCh chan struct{}
 }
 
-func newConn(netConn net.Conn) *Conn {
+func newConn(netConn net.Conn) (*Conn, error) {
 	conn := &Conn{
 		rd:     resp3.NewReader(netConn),
 		w:      resp3.NewWriter(netConn),
@@ -23,7 +23,22 @@ func newConn(netConn net.Conn) *Conn {
 		stopCh: make(chan struct{}),
 	}
 	conn.run() // run in background
-	return conn
+
+	_, err := conn.do("hello", "3")
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	// TODO : check result value
+
+	_, err = conn.do("CLIENT", "TRACKING", "ON")
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	// TODO : check result value
+
+	return conn, nil
 }
 
 func (c *Conn) Set(key, val string) error {
@@ -79,24 +94,20 @@ func (c *Conn) run() {
 				log.Printf("failed to receive a message: %v", err)
 				continue
 			}
-			log.Printf("got something")
 
 			// send to respCh if not push notif
 			if resp.Type != resp3.TypePush {
-				log.Printf("conn got non push data: %v", resp.Type)
+				//log.Printf("[non-push resp] %v:%v", resp.Type, resp.SmartResult())
 				c.respCh <- resp
 				continue
 			}
-			log.Printf("conn got  push data: %v", resp.Type)
+			log.Printf("[PUSH resp] %v", resp.Type)
 
 			// handle invalidation
 			if len(resp.Elems) >= 2 && resp.Elems[0].SmartResult().(string) == "invalidate" {
 				log.Printf("received TRACKING result: %c, %+v", resp.Type, resp.SmartResult())
 				//res, ok := resp.Elems[0].SmartResult()
-
-				// refresh cache "a"
-				//w.WriteCommand("GET", "a")
-				//resp, _, err = r.ReadValue()
+				// refresh or delete the cache
 			}
 		}
 	}()
