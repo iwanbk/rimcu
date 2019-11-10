@@ -2,6 +2,7 @@ package resp3pool
 
 import (
 	"context"
+	"github.com/iwanbk/rimcu/internal/crc"
 	"log"
 	"testing"
 	"time"
@@ -10,22 +11,31 @@ import (
 )
 
 func TestConn(t *testing.T) {
-	ctx := context.Background()
+	var (
+		pool1            = NewPool("localhost:6379")
+		pool2            = NewPool("localhost:6379")
+		c2InvalidationCh = make(chan struct{})
+		ctx              = context.Background()
+	)
 
-	pool := NewPool("localhost:6379")
-
-	c1, err := pool.Get(ctx)
+	c1, err := pool1.Get(ctx, func(slot uint64) {
+		log.Printf("invalidate callback %v", slot)
+	})
 	require.NoError(t, err)
+	defer c1.Close()
 
-	c2, err := pool.Get(ctx)
+	c2, err := pool2.Get(ctx, func(slot uint64) {
+		c2InvalidationCh <- struct{}{}
+	})
 	require.NoError(t, err)
+	defer c2.Close()
 
 	const (
 		key1 = "key_1"
 		val1 = "val_1"
 		val2 = "val_2"
 	)
-	log.Printf("key crc = %v", redisCrc([]byte(key1)))
+	log.Printf("key crc = %v", crc.RedisCrc([]byte(key1)))
 
 	err = c1.Set(key1, val1)
 	require.NoError(t, err)
@@ -37,5 +47,9 @@ func TestConn(t *testing.T) {
 	err = c1.Set(key1, val2)
 	require.NoError(t, err)
 
-	time.Sleep(5 * time.Second)
+	select {
+	case <-c2InvalidationCh:
+	case <-time.After(5 * time.Second):
+		t.Errorf("don't receive invalidation after 5 seconds")
+	}
 }

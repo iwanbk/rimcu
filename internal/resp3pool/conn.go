@@ -4,23 +4,45 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 
+	"github.com/iwanbk/rimcu/internal/crc"
 	"github.com/smallnest/resp3"
 )
 
+// Conn is a single redis connection.
+//
+// It is not safe to use it concurrently
 type Conn struct {
-	w      *resp3.Writer
-	rd     *resp3.Reader
+	// reader & writer for redis server communication
+	w  *resp3.Writer
+	rd *resp3.Reader
+
 	respCh chan *resp3.Value // TODO: add resp counter
+
+	pool   *Pool
 	stopCh chan struct{}
+
+	// callback func to call when a slot become not valid anymore.
+	// it could happen in two conditions:
+	// - it receives invalidation message from redis
+	// - it's connection is closed, we should invalidates all slots
+	invalidCb InvalidateCbFunc
+
+	mtx sync.Mutex
+	// slots store all slots that is tracked by this connection
+	slots map[uint64]struct{}
 }
 
-func newConn(netConn net.Conn) (*Conn, error) {
+func newConn(netConn net.Conn, pool *Pool, invalidCb InvalidateCbFunc) (*Conn, error) {
 	conn := &Conn{
-		rd:     resp3.NewReader(netConn),
-		w:      resp3.NewWriter(netConn),
-		respCh: make(chan *resp3.Value),
-		stopCh: make(chan struct{}),
+		rd:        resp3.NewReader(netConn),
+		w:         resp3.NewWriter(netConn),
+		pool:      pool,
+		respCh:    make(chan *resp3.Value),
+		stopCh:    make(chan struct{}),
+		invalidCb: invalidCb,
+		slots:     make(map[uint64]struct{}),
 	}
 	conn.run() // run in background
 
@@ -41,16 +63,34 @@ func newConn(netConn net.Conn) (*Conn, error) {
 	return conn, nil
 }
 
+// Close puts the connection back to the connection pool,
+// and can still be reused later
+func (c *Conn) Close() {
+	c.pool.putConnBack(c)
+}
+
+// destroy this connection make it invalid to be used
+func (c *Conn) destroy() {
+	c.stopCh <- struct{}{}
+}
+
 func (c *Conn) Set(key, val string) error {
 	_, err := c.Do("SET", key, val)
 	return err
 }
 
 func (c *Conn) Get(key string) (string, error) {
+	// execute redis commands
 	resp, err := c.Do("GET", key)
 	if err != nil {
 		return "", err
 	}
+
+	// track the slots
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	c.slots[crc.RedisCrc([]byte(key))] = struct{}{}
+
 	return resp.Str, nil
 }
 
@@ -64,10 +104,12 @@ func (c *Conn) Ping() error {
 	}
 	return nil
 }
+
 func (c *Conn) Do(cmd, key string, args ...string) (*resp3.Value, error) {
 	cmds := append([]string{cmd, key}, args...)
 	return c.do(cmds...)
 }
+
 func (c *Conn) do(args ...string) (*resp3.Value, error) {
 	if err := c.w.WriteCommand(args...); err != nil {
 		return nil, err
@@ -76,9 +118,7 @@ func (c *Conn) do(args ...string) (*resp3.Value, error) {
 	val := <-c.respCh // TODO: add some timeout mechanism
 	return val, nil
 }
-func (c *Conn) Close() {
-	c.stopCh <- struct{}{}
-}
+
 func (c *Conn) run() {
 	go func() {
 		for {
@@ -104,11 +144,29 @@ func (c *Conn) run() {
 			log.Printf("[PUSH resp] %v", resp.Type)
 
 			// handle invalidation
-			if len(resp.Elems) >= 2 && resp.Elems[0].SmartResult().(string) == "invalidate" {
-				log.Printf("received TRACKING result: %c, %+v", resp.Type, resp.SmartResult())
-				//res, ok := resp.Elems[0].SmartResult()
-				// refresh or delete the cache
-			}
+			c.checkHandleInvalidation(resp)
 		}
 	}()
+}
+
+// check if it is invalidation message and handle it:
+// - remove the tracking of this slot
+// - execute the provided callback
+func (c *Conn) checkHandleInvalidation(resp *resp3.Value) {
+	if resp.Type != resp3.TypePush || len(resp.Elems) < 2 || resp.Elems[0].SmartResult().(string) != "invalidate" {
+		return
+	}
+
+	r := resp.Elems[1]
+	log.Printf("received TRACKING result: %c, %#v", resp.Type, resp.SmartResult())
+	log.Printf("res[1]%c:%v", r.Type, r.Integer)
+
+	slot := uint64(r.Integer)
+
+	c.mtx.Lock()
+	delete(c.slots, slot)
+	c.mtx.Unlock()
+
+	c.invalidCb(slot)
+
 }

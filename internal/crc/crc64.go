@@ -1,4 +1,4 @@
-package resp3pool
+package crc
 
 import (
 	"hash/crc64"
@@ -8,10 +8,12 @@ const (
 	trackingTableSize = (1 << 24)
 )
 
+// RedisCrc count crc64 of a string
+//
 // this crc64 implementation is based on redis' implementation
 // we can't use Go's implementation because it is not compatible with redis' one.
 // (or maybe i can't make it compatible)
-func redisCrc(p []byte) uint64 {
+func RedisCrc(p []byte) uint64 {
 	var crc uint64
 
 	for _, b := range p {
