@@ -4,10 +4,12 @@ go:
   - 1.13.x
 
 install:
-  - go get -v -t
+  - go get -v -t ./...
+  - bash scripts/install_redis_6.sh
 
 script:
-  - go build
+  - /home/travis/gopath/src/github.com/iwanbk/rimcu/redis-unstable/src/redis-server&
+  - go build ./...
   - go test -race -coverprofile=coverage.txt -covermode=atomic ./...
 
 after_success:
