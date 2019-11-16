@@ -78,8 +78,8 @@ func (c *Conn) destroy() {
 	c.stopCh <- struct{}{}
 }
 
-func (c *Conn) Setex(key, val string, exp int) error {
-	_, err := c.do("SET", key, val, "EX", strconv.Itoa(exp))
+func (c *Conn) Setex(key, val string, exp int64) error {
+	_, err := c.do("SET", key, val, "EX", strconv.FormatInt(exp, 10))
 	return err
 }
 
@@ -96,6 +96,22 @@ func (c *Conn) Get(key string) (string, error) {
 	c.slots[crc.RedisCrc([]byte(key))] = struct{}{}
 
 	return resp.Str, nil
+}
+
+func (c *Conn) Del(key string) error {
+	// execute redis commands
+	_, err := c.do("DEL", key)
+	if err != nil {
+		return err
+	}
+
+	// remove the slot tracking
+	slot := crc.RedisCrc([]byte(key))
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	delete(c.slots, slot)
+
+	return nil
 }
 
 func (c *Conn) Ping() error {

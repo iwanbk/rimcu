@@ -47,10 +47,30 @@ func TestStringsCacheResp3(t *testing.T) {
 	err = scr1.Setex(ctx, key1, val2, exp)
 	require.NoError(t, err)
 
-	time.Sleep(3 * time.Second)
+	time.Sleep(3 * time.Second) // TODO: find better way to wait
 
 	// it should be deleted from scr2 inmem cache
 	// and the call to memGet must failed
 	val, ok = scr2.memGet(key1)
 	require.False(t, ok)
+
+	//--- delete from scr2, it should disappeared from scr1
+	{
+		// populate in mem cache of scr1
+		_, err = scr1.Get(ctx, key1, exp)
+		require.NoError(t, err)
+
+		_, ok = scr1.memGet(key1)
+		require.True(t, ok)
+
+		// delete from scr2
+		err = scr2.Del(ctx, key1)
+		require.NoError(t, err)
+
+		// should be disapperad from scr1
+		time.Sleep(3 * time.Second) // TODO: find better way to wait
+
+		_, ok = scr1.memGet(key1)
+		require.False(t, ok)
+	}
 }

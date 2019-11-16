@@ -16,6 +16,7 @@ func TestConn(t *testing.T) {
 		pool2            = NewPool("localhost:6379")
 		c2InvalidationCh = make(chan struct{})
 		ctx              = context.Background()
+		exp              = int64(1000)
 	)
 
 	c1, err := pool1.Get(ctx, func(slot uint64) {
@@ -37,14 +38,14 @@ func TestConn(t *testing.T) {
 	)
 	log.Printf("key crc = %v", crc.RedisCrc([]byte(key1)))
 
-	err = c1.Set(key1, val1)
+	err = c1.Setex(key1, val1, exp)
 	require.NoError(t, err)
 
 	val, err := c2.Get(key1)
 	require.NoError(t, err)
 	require.Equal(t, val1, val)
 
-	err = c1.Set(key1, val2)
+	err = c1.Setex(key1, val2, exp)
 	require.NoError(t, err)
 
 	select {
