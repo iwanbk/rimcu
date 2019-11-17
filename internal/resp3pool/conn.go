@@ -1,7 +1,6 @@
 package resp3pool
 
 import (
-	"fmt"
 	"log"
 	"net"
 	"strconv"
@@ -111,17 +110,6 @@ func (c *Conn) Del(key string) error {
 	defer c.mtx.Unlock()
 	delete(c.slots, slot)
 
-	return nil
-}
-
-func (c *Conn) Ping() error {
-	resp, err := c.do([]string{"PING"}...)
-	if err != nil {
-		return err
-	}
-	if resp.Str != "PONG" {
-		return fmt.Errorf("invalid PING reply:%v", resp.Str)
-	}
 	return nil
 }
 

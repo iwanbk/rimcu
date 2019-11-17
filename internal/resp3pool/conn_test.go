@@ -12,22 +12,28 @@ import (
 
 func TestConn(t *testing.T) {
 	var (
-		pool1            = NewPool("localhost:6379")
-		pool2            = NewPool("localhost:6379")
 		c2InvalidationCh = make(chan struct{})
 		ctx              = context.Background()
 		exp              = int64(1000)
 	)
-
-	c1, err := pool1.Get(ctx, func(slot uint64) {
-		log.Printf("invalidate callback %v", slot)
+	pool1 := NewPool(PoolConfig{
+		ServerAddr: "localhost:6379",
+		InvalidateCb: func(slot uint64) {
+			log.Printf("invalidate callback %v", slot)
+		},
 	})
+	pool2 := NewPool(PoolConfig{
+		ServerAddr: "localhost:6379",
+		InvalidateCb: func(slot uint64) {
+			c2InvalidationCh <- struct{}{}
+		},
+	})
+
+	c1, err := pool1.Get(ctx)
 	require.NoError(t, err)
 	defer c1.Close()
 
-	c2, err := pool2.Get(ctx, func(slot uint64) {
-		c2InvalidationCh <- struct{}{}
-	})
+	c2, err := pool2.Get(ctx)
 	require.NoError(t, err)
 	defer c2.Close()
 

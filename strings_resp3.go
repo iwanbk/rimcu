@@ -28,16 +28,21 @@ type StringsCacheResp3Config struct {
 
 // NewStringsCacheResp3 create strings cache with redis RESP3 protocol
 func NewStringsCacheResp3(cfg StringsCacheResp3Config) *StringsCacheResp3 {
-	return &StringsCacheResp3{
-		pool:  resp3pool.NewPool(cfg.ServerAddr),
+	sc := &StringsCacheResp3{
 		cc:    ccache.New(ccache.Configure().MaxSize(1000)),
 		slots: newSlot(),
 	}
+	poolCfg := resp3pool.PoolConfig{
+		ServerAddr:   cfg.ServerAddr,
+		InvalidateCb: sc.invalidate,
+	}
+	sc.pool = resp3pool.NewPool(poolCfg)
+	return sc
 }
 
 // Setex sets the key to hold the string value with the given expiration second
 func (scr *StringsCacheResp3) Setex(ctx context.Context, key, val string, exp int64) error {
-	conn, err := scr.pool.Get(ctx, scr.invalidate)
+	conn, err := scr.pool.Get(ctx)
 	if err != nil {
 		return err
 	}
@@ -58,7 +63,7 @@ func (scr *StringsCacheResp3) Get(ctx context.Context, key string, exp int64) (s
 	}
 
 	// get fom redis
-	conn, err := scr.pool.Get(ctx, scr.invalidate)
+	conn, err := scr.pool.Get(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -76,7 +81,7 @@ func (scr *StringsCacheResp3) Get(ctx context.Context, key string, exp int64) (s
 }
 
 func (scr *StringsCacheResp3) Del(ctx context.Context, key string) error {
-	conn, err := scr.pool.Get(ctx, scr.invalidate)
+	conn, err := scr.pool.Get(ctx)
 	if err != nil {
 		return err
 	}
