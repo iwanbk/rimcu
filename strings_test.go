@@ -5,102 +5,78 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis"
-	"github.com/gomodule/redigo/redis"
 	"github.com/stretchr/testify/require"
 )
 
-func TestStringsCacheSetGet(t *testing.T) {
-	server, err := miniredis.Run()
-	require.NoError(t, err)
-	defer server.Close()
-
-	serverAddr := server.Addr()
-
-	// set pool
-	pool1 := &redis.Pool{
-		Dial: func() (redis.Conn, error) {
-			return redis.Dial("tcp", serverAddr)
-		},
-	}
-
-	pool2 := &redis.Pool{
-		Dial: func() (redis.Conn, error) {
-			return redis.Dial("tcp", serverAddr)
-		},
-	}
-
-	// set client
-	cli1, err := NewStringsCache(StringsCacheConfig{
-		CacheSize: 10000,
-	}, pool1)
-	require.NoError(t, err)
-	defer cli1.Close()
-
-	cli2, err := NewStringsCache(StringsCacheConfig{
-		CacheSize: 10000,
-	}, pool2)
-	require.NoError(t, err)
-	defer cli2.Close()
-
+func TestStringsCacheResp3(t *testing.T) {
 	const (
-		key1      = "key1"
-		val1      = "val1"
-		val2      = "val2"
-		expSecond = 100
+		serverAddr = "localhost:6379"
+		cacheSize  = 100
+		key1       = "key_1"
+		val1       = "TestStringsCacheResp3_val1"
+		val2       = "TestStringsCacheResp3_val2"
+		exp        = 100
 	)
-	var (
-		ctx = context.Background()
-	)
-	// - set from client1
-	err = cli1.SetEx(ctx, key1, val1, expSecond)
+
+	scr1 := NewStringsCache(StringsCacheConfig{
+		ServerAddr: serverAddr,
+		CacheSize:  cacheSize,
+	})
+
+	scr2 := NewStringsCache(StringsCacheConfig{
+		ServerAddr: serverAddr,
+		CacheSize:  cacheSize,
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// set to val1
+	err := scr1.Setex(ctx, key1, val1, exp)
 	require.NoError(t, err)
 
-	// -- check in cli2
-	//  check it is the same in client2
-	val, err := cli2.Get(ctx, key1, expSecond)
-	require.NoError(t, err)
-	require.Equal(t, val1, val)
+	// get from scr2, will also populate that value in scr2 in mem cache
+	{
+		val, err := scr2.Get(ctx, key1, exp)
+		require.NoError(t, err)
+		require.Equal(t, val1, val)
 
-	//  check it is in mem of cli2
-	val, ok := cli2.getMemCache(key1)
-	require.True(t, ok)
-	require.Equal(t, val1, val)
+		val, ok := scr2.memGet(key1)
+		require.True(t, ok)
+		require.Equal(t, val1, val)
+	}
 
-	// -- change from cli1 and see it is not mem of cli2 anymore
-	// (a) change from cli1
-	err = cli1.SetEx(ctx, key1, val2, expSecond)
-	require.NoError(t, err)
+	// when the cache changed from scr1, scr2 in mem cache must be deleted
+	{
+		// change to val2
+		err = scr1.Setex(ctx, key1, val2, exp)
+		require.NoError(t, err)
 
-	// wait a bit
-	// TODO: find some better way
-	time.Sleep(1 * time.Second)
+		time.Sleep(3 * time.Second) // TODO: find better way to wait
 
-	// (b) make sure it is not in memory of cli2 anymore
-	val, ok = cli2.getMemCache(key1)
-	require.False(t, ok)
-	require.Empty(t, val)
+		// it should be deleted from scr2 inmem cache
+		// and the call to memGet must failed
+		_, ok := scr2.memGet(key1)
+		require.False(t, ok)
+	}
 
-	// (c) Get will give correct result
-	val, err = cli2.Get(ctx, key1, expSecond)
-	require.NoError(t, err)
-	require.Equal(t, val2, val)
+	//--- delete from scr2, it should disappeared from scr1
+	{
+		// populate in mem cache of scr1
+		_, err = scr1.Get(ctx, key1, exp)
+		require.NoError(t, err)
 
-	// -------- delete test
-	// del from c2
-	err = cli2.Del(ctx, key1)
-	require.NoError(t, err)
+		_, ok := scr1.memGet(key1)
+		require.True(t, ok)
 
-	// check in memory of c2
-	val, ok = cli2.getMemCache(key1)
-	require.False(t, ok)
-	require.Empty(t, val)
+		// delete from scr2
+		err = scr2.Del(ctx, key1)
+		require.NoError(t, err)
 
-	// TODO: find some better way
-	time.Sleep(1 * time.Second)
-	// check in c1
-	val, err = cli1.Get(ctx, key1, expSecond)
-	require.Equal(t, ErrNotFound, err)
-	require.Empty(t, val)
+		// should be disapperad from scr1
+		time.Sleep(3 * time.Second) // TODO: find better way to wait
 
+		_, ok = scr1.memGet(key1)
+		require.False(t, ok)
+	}
 }
