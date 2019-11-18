@@ -1,9 +1,9 @@
 package resp3pool
 
 import (
-	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 
 	"github.com/iwanbk/rimcu/internal/crc"
@@ -15,8 +15,9 @@ import (
 // It is not safe to use it concurrently
 type Conn struct {
 	// reader & writer for redis server communication
-	w  *resp3.Writer
-	rd *resp3.Reader
+	w    *resp3.Writer
+	rd   *resp3.Reader
+	conn net.Conn
 
 	respCh chan *resp3.Value // TODO: add resp counter
 
@@ -38,6 +39,7 @@ func newConn(netConn net.Conn, pool *Pool, invalidCb InvalidateCbFunc) (*Conn, e
 	conn := &Conn{
 		rd:        resp3.NewReader(netConn),
 		w:         resp3.NewWriter(netConn),
+		conn:      netConn,
 		pool:      pool,
 		respCh:    make(chan *resp3.Value),
 		stopCh:    make(chan struct{}),
@@ -71,11 +73,12 @@ func (c *Conn) Close() {
 
 // destroy this connection make it invalid to be used
 func (c *Conn) destroy() {
+	c.conn.Close()
 	c.stopCh <- struct{}{}
 }
 
-func (c *Conn) Set(key, val string) error {
-	_, err := c.Do("SET", key, val)
+func (c *Conn) Setex(key, val string, exp int64) error {
+	_, err := c.do("SET", key, val, "EX", strconv.FormatInt(exp, 10))
 	return err
 }
 
@@ -94,14 +97,19 @@ func (c *Conn) Get(key string) (string, error) {
 	return resp.Str, nil
 }
 
-func (c *Conn) Ping() error {
-	resp, err := c.do([]string{"PING"}...)
+func (c *Conn) Del(key string) error {
+	// execute redis commands
+	_, err := c.do("DEL", key)
 	if err != nil {
 		return err
 	}
-	if resp.Str != "PONG" {
-		return fmt.Errorf("invalid PING reply:%v", resp.Str)
-	}
+
+	// remove the slot tracking
+	slot := crc.RedisCrc([]byte(key))
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	delete(c.slots, slot)
+
 	return nil
 }
 

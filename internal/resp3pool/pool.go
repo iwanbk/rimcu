@@ -11,22 +11,29 @@ import (
 //
 // It is currently very simple untested pool
 type Pool struct {
-	serverAddr string
+	serverAddr   string
+	invalidateCb InvalidateCbFunc
 
 	mtx   sync.Mutex
 	conns []*Conn
 }
 
+type PoolConfig struct {
+	ServerAddr   string
+	InvalidateCb InvalidateCbFunc
+}
+
 // NewPool creates new connection pool from the given server address
-func NewPool(serverAddr string) *Pool {
+func NewPool(cfg PoolConfig) *Pool {
 	return &Pool{
-		serverAddr: serverAddr,
+		serverAddr:   cfg.ServerAddr,
+		invalidateCb: cfg.InvalidateCb,
 	}
 }
 
 type InvalidateCbFunc func(uint64)
 
-func (p *Pool) Get(ctx context.Context, invalidCb InvalidateCbFunc) (*Conn, error) {
+func (p *Pool) Get(ctx context.Context) (*Conn, error) {
 	// get from pool
 	conn, ok := p.getConnFromPool()
 	if ok {
@@ -34,7 +41,7 @@ func (p *Pool) Get(ctx context.Context, invalidCb InvalidateCbFunc) (*Conn, erro
 	}
 
 	// dial
-	return p.dial(invalidCb)
+	return p.dial(p.invalidateCb)
 }
 
 // get existing connection from front of the pool

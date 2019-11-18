@@ -12,21 +12,28 @@ import (
 
 func TestConn(t *testing.T) {
 	var (
-		pool1            = NewPool("localhost:6379")
-		pool2            = NewPool("localhost:6379")
 		c2InvalidationCh = make(chan struct{})
 		ctx              = context.Background()
+		exp              = int64(1000)
 	)
-
-	c1, err := pool1.Get(ctx, func(slot uint64) {
-		log.Printf("invalidate callback %v", slot)
+	pool1 := NewPool(PoolConfig{
+		ServerAddr: "localhost:6379",
+		InvalidateCb: func(slot uint64) {
+			log.Printf("invalidate callback %v", slot)
+		},
 	})
+	pool2 := NewPool(PoolConfig{
+		ServerAddr: "localhost:6379",
+		InvalidateCb: func(slot uint64) {
+			c2InvalidationCh <- struct{}{}
+		},
+	})
+
+	c1, err := pool1.Get(ctx)
 	require.NoError(t, err)
 	defer c1.Close()
 
-	c2, err := pool2.Get(ctx, func(slot uint64) {
-		c2InvalidationCh <- struct{}{}
-	})
+	c2, err := pool2.Get(ctx)
 	require.NoError(t, err)
 	defer c2.Close()
 
@@ -37,14 +44,14 @@ func TestConn(t *testing.T) {
 	)
 	log.Printf("key crc = %v", crc.RedisCrc([]byte(key1)))
 
-	err = c1.Set(key1, val1)
+	err = c1.Setex(key1, val1, exp)
 	require.NoError(t, err)
 
 	val, err := c2.Get(key1)
 	require.NoError(t, err)
 	require.Equal(t, val1, val)
 
-	err = c1.Set(key1, val2)
+	err = c1.Setex(key1, val2, exp)
 	require.NoError(t, err)
 
 	select {
