@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestStringsCacheSetGet(t *testing.T) {
+func TestStringsCacheResp2SetGet(t *testing.T) {
 	server, err := miniredis.Run()
 	require.NoError(t, err)
 	defer server.Close()
@@ -33,12 +33,14 @@ func TestStringsCacheSetGet(t *testing.T) {
 	// set client
 	cli1, err := NewStringsCacheResp2(StringsCacheResp2Config{
 		CacheSize: 10000,
+		Logger:    &debugLogger{},
 	}, pool1)
 	require.NoError(t, err)
 	defer cli1.Close()
 
 	cli2, err := NewStringsCacheResp2(StringsCacheResp2Config{
 		CacheSize: 10000,
+		Logger:    &debugLogger{},
 	}, pool2)
 	require.NoError(t, err)
 	defer cli2.Close()
@@ -53,7 +55,7 @@ func TestStringsCacheSetGet(t *testing.T) {
 		ctx = context.Background()
 	)
 	// - set from client1
-	err = cli1.SetEx(ctx, key1, val1, expSecond)
+	err = cli1.Setex(ctx, key1, val1, expSecond)
 	require.NoError(t, err)
 
 	// -- check in cli2
@@ -69,7 +71,7 @@ func TestStringsCacheSetGet(t *testing.T) {
 
 	// -- change from cli1 and see it is not mem of cli2 anymore
 	// (a) change from cli1
-	err = cli1.SetEx(ctx, key1, val2, expSecond)
+	err = cli1.Setex(ctx, key1, val2, expSecond)
 	require.NoError(t, err)
 
 	// wait a bit
