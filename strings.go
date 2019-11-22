@@ -10,14 +10,19 @@ import (
 	"github.com/karlseguin/ccache"
 )
 
-// StringsCache represents strings cache with redis RESP3 protocol
+// StringsCache represents in memory strings cache which sync the cache
+// with other nodes using Redis RESP3 protocol.
 type StringsCache struct {
-	pool  *resp3pool.Pool
-	cc    *ccache.Cache
+	pool *resp3pool.Pool
+
+	// in memory cache
+	cc *ccache.Cache
+
+	// slots maps the redis slot into the cache key.
 	slots *slot
 }
 
-// StringsCacheConfig represents config of strings cache with redis RESP3 protocol
+// StringsCacheConfig represents config of StringsCache
 type StringsCacheConfig struct {
 	// redis server address
 	ServerAddr string
@@ -40,7 +45,11 @@ func NewStringsCache(cfg StringsCacheConfig) *StringsCache {
 	return sc
 }
 
-// Setex sets the key to hold the string value with the given expiration second
+// Setex sets the key to hold the string value with the given expiration second.
+//
+// Calling this func will invalidate inmem cache of this key's slot in other nodes.
+//
+// TODO: also set inmem cache
 func (sc *StringsCache) Setex(ctx context.Context, key, val string, exp int64) error {
 	conn, err := sc.pool.Get(ctx)
 	if err != nil {
@@ -82,6 +91,7 @@ func (sc *StringsCache) Get(ctx context.Context, key string, exp int64) (string,
 
 // Del deletes the key in local and remote
 func (sc *StringsCache) Del(ctx context.Context, key string) error {
+	// delete from redis
 	conn, err := sc.pool.Get(ctx)
 	if err != nil {
 		return err
@@ -92,6 +102,8 @@ func (sc *StringsCache) Del(ctx context.Context, key string) error {
 	if err != nil {
 		return err
 	}
+
+	// delete from in mem cache
 	sc.memDel(key)
 	return nil
 }
