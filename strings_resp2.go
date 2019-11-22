@@ -65,6 +65,7 @@ func NewStringsCacheResp2(cfg StringsCacheResp2Config, pool *redis.Pool) (*Strin
 	return sc, sc.runSubscriber()
 }
 
+// Close closes the cache, release all resources
 func (sc *StringsCacheResp2) Close() error {
 	sc.cacheFinishedCh <- struct{}{}
 	sc.pool.Close()
@@ -129,6 +130,7 @@ func (sc *StringsCacheResp2) Get(ctx context.Context, key string, expSecond int)
 	return val, nil
 }
 
+// Del deletes the cache of the given key
 func (sc *StringsCacheResp2) Del(ctx context.Context, key string) error {
 	sc.cc.Del(key)
 
