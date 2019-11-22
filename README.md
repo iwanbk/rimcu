@@ -16,11 +16,20 @@ So you don't need to always ask the Redis server to get your cache data.
 ## StringsCache
 
 StringsCache is cache for redis [`strings`](https://redis.io/topics/data-types#strings) data type with RESP3 protocol.
+
 It needs Redis server with RESP3 support which currently only available in Redis 6 (unstable)
+
+### TODO
+
+- improve reliability of the connection pool
 
 ## StringsCacheResp2
 
-StringsCacheResp2 is cache for redis [`strings`](https://redis.io/topics/data-types#strings) data type with RESP2 protocol.
-It can be used with any Redis versions.
-It is under re-designing work.
+StringsCacheResp2 is cache for redis [`strings`](https://redis.io/topics/data-types#strings) data type with RESP2 protocol, which means it can be used with any Redis versions.
 
+It syncs the data between client using redis pubsub. It uses Lua script to guarantee the atomicity of set/del the key with publishing the change.
+
+### TODO
+
+- add option to also publish the data instead of only the key
+- consider to sync using slot instead of key, similar to how RESP3 doing the sync
