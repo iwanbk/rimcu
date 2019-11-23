@@ -33,3 +33,7 @@ It syncs the data between client using redis pubsub. It uses Lua script to guara
 
 - add option to also publish the data instead of only the key
 - consider to sync using slot instead of key, similar to how RESP3 doing the sync
+
+## ListCacheResp2
+
+ListCacheResp2 is cache for Redis list data type, it is still in very early development phase
