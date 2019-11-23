@@ -3,14 +3,18 @@ language: go
 go:
   - 1.13.x
 
+env:
+  - TEST_REDIS_ADDR="localhost:6379"
+
 install:
   - go get -v -t ./...
   - bash scripts/install_redis_6.sh
+  - go get -u github.com/rakyll/gotest
 
 script:
   - /home/travis/gopath/src/github.com/iwanbk/rimcu/redis-unstable/src/redis-server&
   - go build ./...
-  - go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+  - gotest -race -coverprofile=coverage.txt -covermode=atomic ./...
 
 after_success:
   - bash <(curl -s https://codecov.io/bash)
