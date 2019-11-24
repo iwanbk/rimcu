@@ -1,6 +1,7 @@
 package resp3pool
 
 import (
+	"errors"
 	"log"
 	"net"
 	"strconv"
@@ -8,6 +9,11 @@ import (
 
 	"github.com/iwanbk/rimcu/internal/crc"
 	"github.com/smallnest/resp3"
+)
+
+var (
+	// ErrNotFound returned when there is no cache of the given key
+	ErrNotFound = errors.New("not found")
 )
 
 // Conn is a single redis connection.
@@ -72,21 +78,31 @@ func (c *Conn) Close() {
 }
 
 // destroy this connection make it invalid to be used
+/* TODO : call it from the pool
 func (c *Conn) destroy() {
 	c.conn.Close()
 	c.stopCh <- struct{}{}
-}
+}*/
 
 func (c *Conn) Setex(key, val string, exp int64) error {
 	_, err := c.do("SET", key, val, "EX", strconv.FormatInt(exp, 10))
 	return err
 }
 
+// Get value of the given key.
+//
+// It returns ErrNotFound if there is no cache with the given key
 func (c *Conn) Get(key string) (string, error) {
 	// execute redis commands
 	resp, err := c.Do("GET", key)
 	if err != nil {
 		return "", err
+	}
+
+	if resp.Str == "" {
+		// TODO : differentiate between empty string and nil value
+		// ErrNotFound must only be returned on nil value
+		return "", ErrNotFound
 	}
 
 	// track the slots

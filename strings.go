@@ -20,6 +20,8 @@ type StringsCache struct {
 
 	// slots maps the redis slot into the cache key.
 	slots *slot
+
+	logger Logger
 }
 
 // StringsCacheConfig represents config of StringsCache
@@ -28,14 +30,26 @@ type StringsCacheConfig struct {
 	ServerAddr string
 
 	// size of the  in memory cache
+	// Default is 100K
 	CacheSize int
+
+	// logger to be used, use default logger which print on error
+	Logger Logger
 }
 
 // NewStringsCache create strings cache with redis RESP3 protocol
 func NewStringsCache(cfg StringsCacheConfig) *StringsCache {
+	if cfg.CacheSize == 0 {
+		cfg.CacheSize = 100000
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = &defaultLogger{}
+	}
+
 	sc := &StringsCache{
-		cc:    ccache.New(ccache.Configure().MaxSize(1000)),
-		slots: newSlot(),
+		cc:     ccache.New(ccache.Configure().MaxSize(1000)),
+		slots:  newSlot(),
+		logger: cfg.Logger,
 	}
 	poolCfg := resp3pool.PoolConfig{
 		ServerAddr:   cfg.ServerAddr,
@@ -105,6 +119,11 @@ func (sc *StringsCache) Del(ctx context.Context, key string) error {
 
 	// delete from in mem cache
 	sc.memDel(key)
+	return nil
+}
+
+// TODO
+func (sc *StringsCache) Close() error {
 	return nil
 }
 
@@ -213,9 +232,4 @@ func makeSlotEntries() slotEntries {
 
 func (se slotEntries) add(key string) {
 	se[key] = struct{}{}
-}
-
-func (se slotEntries) get(key string) bool {
-	_, ok := se[key]
-	return ok
 }
