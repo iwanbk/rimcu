@@ -74,7 +74,9 @@ func (sc *StringsCacheResp2) Close() error {
 
 // Setex sets the value of the key with the given value and expiration in second.
 //
-// / Calling this func will invalidate inmem cache of this key's slot in other nodes.
+// Calling this func will
+// - invalidate inmem cache of other nodes
+// - initialize in mem cache of this node
 func (sc *StringsCacheResp2) Setex(ctx context.Context, key, val string, expSecond int) error {
 	// get conn
 	conn, err := sc.pool.GetContext(ctx)

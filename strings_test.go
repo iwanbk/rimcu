@@ -146,7 +146,10 @@ func TestStringsCache_Get_Valid_InitInMem(t *testing.T) {
 	{
 
 		// check
-		_, ok := sc2.memGet(key1)
+		_, ok := sc1.memGet(key1)
+		require.True(t, ok)
+
+		_, ok = sc2.memGet(key1)
 		require.True(t, ok)
 
 		_, ok = sc3.memGet(key1)
@@ -155,7 +158,9 @@ func TestStringsCache_Get_Valid_InitInMem(t *testing.T) {
 
 }
 
-// Get invalid key must not initiate in mem cache
+// Get invalid key must:
+// -  not initiate in mem cache
+// - got error
 func TestStringsCache_Get_Invalid_NotInitInMem(t *testing.T) {
 	ctx := context.Background()
 
@@ -240,7 +245,10 @@ func TestStringsCache_Del_ValidKey_Propagate(t *testing.T) {
 	{
 
 		// check
-		_, ok := sc2.memGet(key1)
+		_, ok := sc1.memGet(key1)
+		require.False(t, ok)
+
+		_, ok = sc2.memGet(key1)
 		require.False(t, ok)
 
 		_, ok = sc3.memGet(key1)

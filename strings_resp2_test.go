@@ -10,102 +10,266 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestStringsCacheResp2SetGet(t *testing.T) {
+const (
+	testExpSecond = 1000
+)
 
+// Test Set WILL initiate in memory cache
+func TestStringsCacheResp2_Set_InitInMem(t *testing.T) {
 	clis, cleanup := createStringsResp2TestClient(t, 2)
 	defer cleanup()
 
-	require.Len(t, clis, 2)
-
-	cli1, cli2 := clis[0], clis[1]
-
-	const (
-		key1      = "key1"
-		val1      = "val1"
-		val2      = "val2"
-		expSecond = 100
-	)
 	var (
-		ctx = context.Background()
+		cli1      = clis[0]
+		key1      = generateRandomKey()
+		val1      = "val1"
+		expSecond = 100
+		ctx       = context.Background()
 	)
-	// - set from client1
-	err := cli1.Setex(ctx, key1, val1, expSecond)
-	require.NoError(t, err)
 
-	// -- check in cli2
-	//  check it is the same in client2
-	val, err := cli2.Get(ctx, key1, expSecond)
-	require.NoError(t, err)
-	require.Equal(t, val1, val)
+	// Test Init
+	{
 
-	//  check it is in mem of cli2
-	val, ok := cli2.getMemCache(key1)
-	require.True(t, ok)
-	require.Equal(t, val1, val)
+	}
 
-	// -- change from cli1 and see it is not mem of cli2 anymore
-	// (a) change from cli1
-	err = cli1.Setex(ctx, key1, val2, expSecond)
-	require.NoError(t, err)
+	// make sure initial condition
+	{
+		val, ok := cli1.getMemCache(key1)
+		require.False(t, ok)
+		require.Empty(t, val)
+	}
 
-	// wait a bit
-	// TODO: find some better way
-	time.Sleep(1 * time.Second)
+	// do action
+	{
+		// - set from client1
+		err := cli1.Setex(ctx, key1, val1, expSecond)
+		require.NoError(t, err)
 
-	// (b) make sure it is not in memory of cli2 anymore
-	val, ok = cli2.getMemCache(key1)
-	require.False(t, ok)
-	require.Empty(t, val)
+	}
 
-	// (c) Get will give correct result
-	val, err = cli2.Get(ctx, key1, expSecond)
-	require.NoError(t, err)
-	require.Equal(t, val2, val)
+	// check expected condition
+	{
+		val, ok := cli1.getMemCache(key1)
+		require.True(t, ok)
+		require.Equal(t, val1, val)
+	}
+
 }
 
-func TestStringsCacheResp2Delete(t *testing.T) {
-	clis, cleanup := createStringsResp2TestClient(t, 2)
+// Test that Set will invalidate memcache in other nodes
+func TestStringsCacheResp2_Set_Invalidate(t *testing.T) {
+	ctx := context.Background()
+
+	scs, cleanup := createStringsResp2TestClient(t, 3)
 	defer cleanup()
 
-	require.Len(t, clis, 2)
-
-	cli1, cli2 := clis[0], clis[1]
-
-	const (
-		key1      = "key1"
-		val1      = "val1"
-		val2      = "val2"
-		expSecond = 100
-	)
 	var (
-		ctx = context.Background()
+		sc1, sc2, sc3 = scs[0], scs[1], scs[2]
+		key1          = generateRandomKey()
+		val1          = "val_1"
+		val2          = "val_2"
 	)
 
-	// initialize data
-	err := cli1.Setex(ctx, key1, val1, expSecond)
-	require.NoError(t, err)
+	{ // Test initialization, get the value to activate listening
+		// Set
+		err := sc1.Setex(ctx, key1, val1, testExpSecond)
+		require.NoError(t, err)
 
-	val, err := cli2.Get(ctx, key1, expSecond)
-	require.NoError(t, err)
-	require.Equal(t, val1, val)
+		// Get to activate listening
+		_, err = sc2.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
 
-	// del from c2
-	err = cli2.Del(ctx, key1)
-	require.NoError(t, err)
+		_, err = sc3.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+	}
 
-	// check in memory of c2, make sure not exists
-	val, ok := cli2.getMemCache(key1)
-	require.False(t, ok)
-	require.Empty(t, val)
+	// make sure initial condition, key1 must exists in memcache
+	{
+		_, ok := sc2.getMemCache(key1)
+		require.True(t, ok)
 
-	// TODO: find some better way to wait
-	time.Sleep(1 * time.Second)
+		_, ok = sc3.getMemCache(key1)
+		require.True(t, ok)
+	}
 
-	// check in  memory of c1, make sure not exists
-	val, ok = cli1.getMemCache(key1)
-	require.False(t, ok)
-	require.Empty(t, val)
+	// do the action : Set
+	{
+		// set
+		err := sc1.Setex(ctx, key1, val2, testExpSecond)
+		require.NoError(t, err)
+	}
+	time.Sleep(syncTimeWait)
 
+	// check expected condition
+	{
+
+		// check
+		_, ok := sc2.getMemCache(key1)
+		require.False(t, ok)
+
+		_, ok = sc3.getMemCache(key1)
+		require.False(t, ok)
+	}
+
+}
+
+// Get valid key must initiate inmem cache
+func TestStringsCacheResp2_Get_Valid_InitInMem(t *testing.T) {
+	ctx := context.Background()
+
+	scs, cleanup := createStringsResp2TestClient(t, 3)
+	defer cleanup()
+
+	var (
+		sc1, sc2, sc3 = scs[0], scs[1], scs[2]
+		key1          = generateRandomKey()
+		val1          = "val_1"
+	)
+
+	// Test initialization: set the key in redis
+	{
+		// set
+		err := sc1.Setex(ctx, key1, val1, testExpSecond)
+		require.NoError(t, err)
+
+		val, err := sc1.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+		require.Equal(t, val1, val)
+	}
+
+	// make sure initial condition: key not exist in memcache
+	{
+		_, ok := sc2.getMemCache(key1)
+		require.False(t, ok)
+
+		_, ok = sc3.getMemCache(key1)
+		require.False(t, ok)
+	}
+
+	// do the action : Get
+	{
+		// get
+		val, err := sc2.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+		require.Equal(t, val1, val)
+
+		val, err = sc3.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+		require.Equal(t, val1, val)
+	}
+
+	time.Sleep(syncTimeWait)
+
+	// check expected condition
+	// key1 exists in memcache
+	{
+
+		// check
+		_, ok := sc2.getMemCache(key1)
+		require.True(t, ok)
+
+		_, ok = sc3.getMemCache(key1)
+		require.True(t, ok)
+	}
+
+}
+
+// Get invalid key must:
+// -  not initiate in mem cache
+// - got error
+func TestStringsCacheResp2_Get_Invalid_NotInitInMem(t *testing.T) {
+	ctx := context.Background()
+
+	scs, cleanup := createStringsResp2TestClient(t, 3)
+	defer cleanup()
+
+	var (
+		sc1  = scs[0]
+		key1 = generateRandomKey()
+	)
+
+	// make sure initial condition, key1 must not exists in memcache
+	{
+		_, ok := sc1.getMemCache(key1)
+		require.False(t, ok)
+	}
+
+	// do the action : get key that not exists
+	{
+		// get
+		_, err := sc1.Get(ctx, key1, testExpSecond)
+		require.Error(t, err)
+	}
+
+	// check expected condition
+	// key1 not exists in memcache
+	{
+
+		// check
+		_, ok := sc1.getMemCache(key1)
+		require.False(t, ok)
+
+	}
+
+}
+
+// Test Del : deleting valid key must propagate to other nodes
+func TestStringsCacheResp2_Del_ValidKey_Propagate(t *testing.T) {
+	ctx := context.Background()
+
+	scs, cleanup := createStringsResp2TestClient(t, 3)
+	defer cleanup()
+
+	var (
+		sc1, sc2, sc3 = scs[0], scs[1], scs[2]
+		key1          = generateRandomKey()
+		val1          = "val_1"
+	)
+
+	{ // Test initialization, get the value to activate listening
+		// Set
+		err := sc1.Setex(ctx, key1, val1, testExpSecond)
+		require.NoError(t, err)
+
+		// Get to activate listening
+		_, err = sc2.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+
+		_, err = sc3.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+	}
+
+	// make sure initial condition, key1 must exists in memcache
+	{
+		_, ok := sc2.getMemCache(key1)
+		require.True(t, ok)
+
+		_, ok = sc3.getMemCache(key1)
+		require.True(t, ok)
+	}
+
+	// do the action : Del
+	{
+		// set
+		err := sc1.Del(ctx, key1)
+		require.NoError(t, err)
+	}
+
+	time.Sleep(syncTimeWait)
+
+	// check expected condition
+	{
+
+		_, ok := sc1.getMemCache(key1)
+		require.False(t, ok)
+
+		// check
+		_, ok = sc2.getMemCache(key1)
+		require.False(t, ok)
+
+		_, ok = sc3.getMemCache(key1)
+		require.False(t, ok)
+	}
 }
 
 func createStringsResp2TestClient(t *testing.T, numCli int) ([]*StringsCacheResp2, func()) {
