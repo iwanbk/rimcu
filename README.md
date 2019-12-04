@@ -3,6 +3,7 @@
 [![Build Status](https://travis-ci.org/iwanbk/rimcu.svg?branch=master)](https://travis-ci.org/iwanbk/rimcu)
 [![codecov](https://codecov.io/gh/iwanbk/rimcu/branch/master/graph/badge.svg)](https://codecov.io/gh/iwanbk/rimcu)
 [![godoc](https://godoc.org/github.com/iwanbk/rimcu?status.svg)](http://godoc.org/github.com/iwanbk/rimcu)
+[![Maintainability](https://api.codeclimate.com/v1/badges/edbfa2013d2a8d2b74ce/maintainability)](https://codeclimate.com/github/iwanbk/rimcu/maintainability)
 
 Rimcu is Go in memory cache library which use  Redis to synchronize cache data with other nodes.
 In other words, it is a combination of Redis cient library and in memory cache library.
