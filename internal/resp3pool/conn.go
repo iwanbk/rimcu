@@ -84,8 +84,8 @@ func (c *Conn) destroy() {
 	c.stopCh <- struct{}{}
 }*/
 
-func (c *Conn) Setex(key, val string, exp int64) error {
-	_, err := c.do("SET", key, val, "EX", strconv.FormatInt(exp, 10))
+func (c *Conn) Setex(key, val string, exp int) error {
+	_, err := c.do("SET", key, val, "EX", strconv.Itoa(exp))
 	return err
 }
 

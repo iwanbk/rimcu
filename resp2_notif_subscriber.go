@@ -24,6 +24,10 @@ func newResp2NotifSubcriber(pool *redis.Pool, notifHandler func([]byte), disconn
 	}
 }
 
+// TODO: call it
+func (lc *resp2NotifSubcriber) Close() {
+	lc.finishedCh <- struct{}{}
+}
 func (lc *resp2NotifSubcriber) runSubscriber() error {
 	subscriberDoneCh, err := lc.startSub()
 	if err != nil {
