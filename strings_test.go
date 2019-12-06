@@ -11,7 +11,7 @@ import (
 
 var (
 	testRedis6ServerAddr = "localhost:6379"
-	testExp              = int64(1000)
+	testExp              = 1000
 	syncTimeWait         = 1 * time.Second
 )
 

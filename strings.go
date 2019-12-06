@@ -64,7 +64,7 @@ func NewStringsCache(cfg StringsCacheConfig) *StringsCache {
 // Calling this func will invalidate inmem cache of this key's slot in other nodes.
 //
 // TODO: also set inmem cache
-func (sc *StringsCache) Setex(ctx context.Context, key, val string, exp int64) error {
+func (sc *StringsCache) Setex(ctx context.Context, key, val string, exp int) error {
 	conn, err := sc.pool.Get(ctx)
 	if err != nil {
 		return err
@@ -78,7 +78,7 @@ func (sc *StringsCache) Setex(ctx context.Context, key, val string, exp int64) e
 //
 // It gets from the redis server only if the value not exists in memory cache,
 // it then put the value from server in the in memcache with the given expiration
-func (sc *StringsCache) Get(ctx context.Context, key string, exp int64) (string, error) {
+func (sc *StringsCache) Get(ctx context.Context, key string, exp int) (string, error) {
 	// get from mem, if exists
 	val, ok := sc.memGet(key)
 	if ok {

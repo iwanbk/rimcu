@@ -14,7 +14,7 @@ func TestConn(t *testing.T) {
 	var (
 		c2InvalidationCh = make(chan struct{})
 		ctx              = context.Background()
-		exp              = int64(1000)
+		exp              = 1000
 	)
 	pool1 := NewPool(PoolConfig{
 		ServerAddr: "localhost:6379",
