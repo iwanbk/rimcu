@@ -3,8 +3,6 @@ package rimcu
 import (
 	"bytes"
 	"context"
-	"fmt"
-
 	"github.com/gomodule/redigo/redis"
 	"github.com/iwanbk/rimcu/internal/inmemcache/keycache"
 	"github.com/iwanbk/rimcu/internal/notif"
@@ -21,9 +19,6 @@ type StringsCacheResp2 struct {
 	name []byte
 
 	cc *keycache.KeyCache
-
-	// context
-	cacheFinishedCh chan struct{}
 
 	// lua scripts
 	luaSetex *redis.Script //setex command
@@ -54,20 +49,19 @@ func NewStringsCacheResp2(cfg StringsCacheResp2Config, pool *redis.Pool) (*Strin
 	}
 
 	sc := &StringsCacheResp2{
-		name:            xid.New().Bytes(),
-		pool:            pool,
-		logger:          logger,
-		cc:              cc,
-		cacheFinishedCh: make(chan struct{}),
-		luaSetex:        redis.NewScript(1, scriptSetex),
-		luaDel:          redis.NewScript(1, scriptDel),
+		name:     xid.New().Bytes(),
+		pool:     pool,
+		logger:   logger,
+		cc:       cc,
+		luaSetex: redis.NewScript(1, scriptSetex),
+		luaDel:   redis.NewScript(1, scriptDel),
 	}
-	return sc, sc.runSubscriber()
+	rns := newResp2NotifSubcriber(pool, sc.handleNotif, sc.handleNotifDisconnect, stringsnotifChannel)
+	return sc, rns.runSubscriber()
 }
 
 // Close closes the cache, release all resources
 func (sc *StringsCacheResp2) Close() error {
-	sc.cacheFinishedCh <- struct{}{}
 	sc.pool.Close()
 	return nil
 }
@@ -159,109 +153,28 @@ func (sc *StringsCacheResp2) getMemCache(key string) (string, bool) {
 	return sc.cc.Get(key)
 }
 
-func (sc *StringsCacheResp2) runSubscriber() error {
-	subscriberDoneCh, err := sc.startSub()
-	if err != nil {
-		return err
-	}
-	go func() {
-		for {
-			select {
-			case <-sc.cacheFinishedCh: // we are done
-				return
-			case <-subscriberDoneCh:
-				// we're just disconnected from our Notif channel,
-				// clear our in mem cache as we can't assume that the values
-				// still updated
-				sc.cc.Clear()
-
-				// start new subscriber
-				subscriberDoneCh, err = sc.startSub()
-				if err != nil {
-					sc.logger.Errorf("failed to start subscriber: %v", err)
-				}
-			}
-		}
-	}()
-	return nil
-}
-
-// starts subscriber to listen to all of synchronization message sent by other nodes
-func (sc *StringsCacheResp2) startSub() (chan struct{}, error) {
-	doneCh := make(chan struct{})
-
-	// setup subscriber
-	sub, err := sc.subscribe(stringsnotifChannel)
-	if err != nil {
-		close(doneCh)
-		return doneCh, err
-	}
-
-	// we're just connected to our Notif channel,
-	// it means we previously not connected or disconnected from the Notif channel.
-	// clear our in mem cache as we can't assume that the values
-	// still updated
-	// TODO: add some mechanism to prevent total clear like this.
-	sc.cc.Clear()
-
-	// run subscriber loop
-	go func() {
-		defer func() {
-			close(doneCh)
-			sub.Close()
-		}()
-
-		for {
-			switch v := sub.Receive().(type) {
-			case redis.Message:
-				err := sc.handleNotif(v.Data)
-				if err != nil {
-					sc.logger.Errorf("handleNotif failed: %v", err)
-					return
-				}
-			case error:
-				// TODO: don't log if it is not error, i.e.: on cache Close
-				sc.logger.Errorf("subscribe err: %v", v)
-				return
-			}
-		}
-	}()
-	return doneCh, nil
+// handle notif subscriber disconnected event
+func (sc *StringsCacheResp2) handleNotifDisconnect() {
+	sc.cc.Clear() // TODO : find other ways than complete clear like this
 }
 
 // handleNotif handle raw notification from the redis
-func (sc *StringsCacheResp2) handleNotif(data []byte) error {
+func (sc *StringsCacheResp2) handleNotif(data []byte) {
 	// decode notification
 	nt, err := notif.Decode(data)
 	if err != nil {
-		return fmt.Errorf("failed to decode Notif:%w", err)
+		sc.logger.Errorf("failed to decode Notif:%w", err)
+		return
 	}
 
 	// ignore all updated from ourself
 	if bytes.Equal(nt.ClientID, sc.name) {
-		return nil
+		return
 	}
 
 	sc.logger.Debugf("[%s]msg from %s, slot:%v\n", sc.name, nt.ClientID, nt.Slot)
 
 	sc.cc.HandleNotif(nt)
-	return nil
-}
-
-// subscribe to the notification channel
-func (sc *StringsCacheResp2) subscribe(channel string) (*redis.PubSubConn, error) {
-	conn := sc.pool.Get()
-	if err := conn.Err(); err != nil {
-		return nil, err
-	}
-	sub := &redis.PubSubConn{Conn: conn}
-
-	err := sub.Subscribe(stringsnotifChannel)
-	if err != nil {
-		sub.Close()
-		return nil, err
-	}
-	return sub, nil
 }
 
 const (

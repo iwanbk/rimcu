@@ -8,6 +8,7 @@ import (
 	"github.com/alicebob/miniredis"
 	"github.com/gomodule/redigo/redis"
 	"github.com/stretchr/testify/require"
+	"os"
 )
 
 const (
@@ -273,12 +274,20 @@ func TestStringsCacheResp2_Del_ValidKey_Propagate(t *testing.T) {
 }
 
 func createStringsResp2TestClient(t *testing.T, numCli int) ([]*StringsCacheResp2, func()) {
-	var caches []*StringsCacheResp2
+	var (
+		caches     []*StringsCacheResp2
+		serverAddr = os.Getenv("TEST_REDIS_ADDR")
+		server     *miniredis.Miniredis
+	)
 
-	server, err := miniredis.Run()
-	require.NoError(t, err)
+	if serverAddr == "" { // if we don't have redis server for tests
+		server, err := miniredis.Run()
+		require.NoError(t, err)
 
-	serverAddr := server.Addr()
+		time.Sleep(1 * time.Second) // miniredis sometime need startup time
+
+		serverAddr = server.Addr()
+	}
 
 	// set pool
 	for i := 0; i < numCli; i++ {
@@ -297,7 +306,9 @@ func createStringsResp2TestClient(t *testing.T, numCli int) ([]*StringsCacheResp
 	}
 
 	return caches, func() {
-		server.Close()
+		if server != nil {
+			server.Close()
+		}
 		for _, cli := range caches {
 			cli.Close()
 		}
