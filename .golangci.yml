@@ -5,7 +5,6 @@ linters:
     - errcheck
   enable:
     - gosec
-    - dupl
     - gocritic
     - misspell
     - unconvert
