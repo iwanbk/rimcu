@@ -86,11 +86,9 @@ func (lc *listCache) Rpush(ctx context.Context, key, val string) error {
 
 	// set dirty if cache exists
 	cv, ok := lc.memGet(key)
-	if !ok {
-		return nil
+	if ok {
+		cv.setDirty(opID)
 	}
-	cv.setDirty(opID)
-
 	return nil
 }
 

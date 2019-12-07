@@ -5,6 +5,7 @@ import (
 	"time"
 
 	lru "github.com/hashicorp/golang-lru"
+	"github.com/iwanbk/rimcu/internal/crc"
 	"github.com/iwanbk/rimcu/internal/notif"
 )
 
@@ -39,7 +40,7 @@ func New(size int) (*Cache, error) {
 func (c *Cache) SetEx(key, val string, expSecond int) {
 	now := time.Now()
 	v := cacheVal{
-		Slot:     redisCrc([]byte(key)),
+		Slot:     crc.RedisCrc([]byte(key)),
 		TsUpdate: now.UnixNano(),
 		TsExp:    now.Add(time.Duration(expSecond) * time.Second).UnixNano(),
 		Val:      val,
@@ -113,7 +114,7 @@ func (c *Cache) getExp(slot uint64) (int64, bool) {
 func (c *Cache) NewNotif(cliName []byte, key string) *notif.Notif {
 	return &notif.Notif{
 		ClientID: cliName,
-		Slot:     redisCrc([]byte(key)),
+		Slot:     crc.RedisCrc([]byte(key)),
 	}
 
 }
