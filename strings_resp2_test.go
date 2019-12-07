@@ -159,8 +159,6 @@ func TestStringsCacheResp2_Get_Valid_InitInMem(t *testing.T) {
 		require.Equal(t, val1, val)
 	}
 
-	time.Sleep(syncTimeWait)
-
 	// check expected condition
 	// key1 exists in memcache
 	{
