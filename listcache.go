@@ -37,6 +37,7 @@ type listCache struct {
 
 	// lua scripts
 	luaRpush *redis.Script //rpush
+	luaLpop  *redis.Script //rpush
 
 	logger Logger
 }
@@ -55,6 +56,7 @@ func newListCache(pool *redis.Pool, size int, clientID []byte) (*listCache, erro
 		clientID: clientID,
 		logger:   &debugLogger{},
 		luaRpush: redis.NewScript(1, scriptRpush),
+		luaLpop:  redis.NewScript(1, scriptLpop),
 	}
 	rns := newResp2NotifSubcriber(pool, lc.handleNotifData, lc.handleNotifDisconnect, listChannel)
 	return lc, rns.runSubscriber()
@@ -128,11 +130,6 @@ func (lc *listCache) Lpop(ctx context.Context, key string) (string, bool, error)
 	}
 	defer conn.Close()
 
-	val, err := redis.String(conn.Do(listLpopCmd, key))
-	if err != nil {
-		return "", false, fmt.Errorf("RPUSH failed: %v", err)
-	}
-
 	// Send notif
 	// TODO: make it one step with Lua script
 	opID := xid.New().Bytes()
@@ -141,9 +138,9 @@ func (lc *listCache) Lpop(ctx context.Context, key string) (string, bool, error)
 		return "", false, err
 	}
 
-	_, err = conn.Do("PUBLISH", listChannel, notifMsg)
+	val, err := redis.String(lc.luaLpop.Do(conn, key, notifMsg))
 	if err != nil {
-		return "", false, fmt.Errorf("PUBLISH notif failed: %v", err)
+		return "", false, fmt.Errorf("lpop failed: %v", err)
 	}
 
 	// update cache
@@ -355,5 +352,10 @@ const (
 redis.call('RPUSH', KEYS[1], ARGV[1])
 redis.call('publish', 'rimcu:list', ARGV[2])
 return 'OK'
+	`
+	scriptLpop = `
+local val = redis.call('LPOP', KEYS[1])
+redis.call('publish', 'rimcu:list', ARGV[1])
+return val
 	`
 )
