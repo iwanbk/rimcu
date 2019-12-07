@@ -17,7 +17,7 @@ import (
 //
 // the sync mechanism is using a kind of oplog
 // update list:
-//	- update will always go to server
+//	- update will always go to server.
 //	- send listNotif (cmd, key, arg)
 //	- after sending update command, the in mem cache will be marked as dirty
 //
@@ -94,6 +94,10 @@ func (lc *listCache) Rpush(ctx context.Context, key, val string) error {
 	return nil
 }
 
+// Get the whole list.
+//
+// It gets directly from memory if the key state is not dirty
+// otherwise will get from the server
 func (lc *listCache) Get(ctx context.Context, key string) ([]string, error) {
 	cv, ok := lc.memGet(key)
 	if ok && !cv.isDirty() {
@@ -116,6 +120,8 @@ func (lc *listCache) Get(ctx context.Context, key string) ([]string, error) {
 }
 
 // Lpop removes and returns the first element of the list stored at key.
+//
+// Lpop currently executes the command directly to the server.
 func (lc *listCache) Lpop(ctx context.Context, key string) (string, bool, error) {
 	// do RPUSH
 	conn, err := lc.pool.GetContext(ctx)
@@ -143,7 +149,6 @@ func (lc *listCache) Lpop(ctx context.Context, key string) (string, bool, error)
 	}
 
 	// update cache
-
 	cv, ok := lc.memGet(key)
 	if ok {
 		cv.setDirty(opID)
@@ -227,12 +232,12 @@ func (lc *listCache) handleNotifData(data []byte) {
 		return
 	}
 
-	lc.logger.Debugf("got notif from %v", string(nt.ClientID))
+	//lc.logger.Debugf("got notif from %v", string(nt.ClientID))
 
 	// if not in our memory, ignore
 	cv, ok := lc.memGet(nt.Key)
 	if !ok {
-		lc.logger.Debugf("[rimcu]%s ignore list to key: %v : key not stored in local cache", string(lc.clientID), nt.Key)
+		//lc.logger.Debugf("[rimcu]%s ignore list to key: %v : key not stored in local cache", string(lc.clientID), nt.Key)
 		return
 	}
 

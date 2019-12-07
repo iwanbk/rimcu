@@ -17,8 +17,10 @@ var (
 	listWaitDur = 2 * time.Second
 )
 
-// Test to make sure that push operation will not initiate in mem cache
-func TestListCachePushNotSetInMem(t *testing.T) {
+// Test to make sure that push operation will not initiate in mem cache of:
+// - the pusher
+// - other clients which doesn't listen to the keys
+func TestListCache_PushNotSetInMem(t *testing.T) {
 	lcs, cleanup := createListCacheResp2TestClient(t, 2)
 	defer cleanup()
 
@@ -56,7 +58,7 @@ func TestListCachePushNotSetInMem(t *testing.T) {
 }
 
 // Test RPUSH propagates to other node
-func TestListCachePushPropagate(t *testing.T) {
+func TestListCache_PushPropagate(t *testing.T) {
 	lcs, cleanup := createListCacheResp2TestClient(t, 2)
 	defer cleanup()
 
@@ -111,7 +113,8 @@ func TestListCachePushPropagate(t *testing.T) {
 
 }
 
-func TestListCachePopNotSetInMem(t *testing.T) {
+// Test that list pop will not initiate in-mem cache
+func TestListCache_PopNotSetInMem(t *testing.T) {
 	lcs, cleanup := createListCacheResp2TestClient(t, 2)
 	defer cleanup()
 
@@ -124,17 +127,32 @@ func TestListCachePopNotSetInMem(t *testing.T) {
 		ctx  = context.Background()
 	)
 
-	err := lc1.Rpush(ctx, key1, val1)
-	require.NoError(t, err)
+	// test initialization:fill the data
+	{
+		err := lc1.Rpush(ctx, key1, val1)
+		require.NoError(t, err)
 
-	err = lc2.Rpush(ctx, key1, val2)
-	require.NoError(t, err)
+		err = lc2.Rpush(ctx, key1, val2)
+		require.NoError(t, err)
+	}
 
-	_, _, err = lc2.Lpop(ctx, key1)
-	require.NoError(t, err)
+	// make sure initial condition
+	{
+		_, ok := lc1.memGet(key1)
+		require.False(t, ok)
+	}
 
-	_, _, err = lc1.Lpop(ctx, key1)
-	require.NoError(t, err)
+	// do the action
+	{
+		_, _, err := lc2.Lpop(ctx, key1)
+		require.NoError(t, err)
+
+		_, _, err = lc1.Lpop(ctx, key1)
+		require.NoError(t, err)
+
+	}
+
+	// check expected state
 
 	{
 		time.Sleep(listWaitDur)
@@ -151,7 +169,7 @@ func TestListCachePopNotSetInMem(t *testing.T) {
 }
 
 // Test LPOP propagates to other node
-func TestListCachePopPropagate(t *testing.T) {
+func TestListCache_PopPropagate(t *testing.T) {
 	lcs, cleanup := createListCacheResp2TestClient(t, 2)
 	defer cleanup()
 
@@ -165,34 +183,40 @@ func TestListCachePopPropagate(t *testing.T) {
 		ctx  = context.Background()
 	)
 
-	// GET to listen to the RPUSH/LPOP event
+	// test initialization
 	{
-		_, err := lc1.Get(ctx, key1)
-		require.NoError(t, err)
+		// - GET to listen to the RPUSH/LPOP event
+		{
+			_, err := lc1.Get(ctx, key1)
+			require.NoError(t, err)
 
-		_, err = lc2.Get(ctx, key1)
-		require.NoError(t, err)
+			_, err = lc2.Get(ctx, key1)
+			require.NoError(t, err)
+		}
+		// PUSH some data
+		{
+			err := lc1.Rpush(ctx, key1, val1)
+			require.NoError(t, err)
+
+			err = lc1.Rpush(ctx, key1, val2)
+			require.NoError(t, err)
+
+			err = lc1.Rpush(ctx, key1, val3)
+			require.NoError(t, err)
+		}
 	}
-	// PUSH
+
+	// check initial condition
+
+	// do the action
 	{
-		err := lc1.Rpush(ctx, key1, val1)
-		require.NoError(t, err)
-
-		err = lc1.Rpush(ctx, key1, val2)
-		require.NoError(t, err)
-
-		err = lc1.Rpush(ctx, key1, val3)
-		require.NoError(t, err)
-	}
-
-	{ // POP
 		val, ok, err := lc2.Lpop(ctx, key1)
 		require.NoError(t, err)
 		require.True(t, ok)
 		require.Equal(t, val1, val)
 	}
 
-	// check it is properly propagated
+	// check expected result: it is properly propagated
 	{
 		time.Sleep(listWaitDur)
 
