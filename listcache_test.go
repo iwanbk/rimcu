@@ -266,7 +266,12 @@ func createListCacheResp2TestClient(t *testing.T, numCli int) ([]*listCache, fun
 				return redis.Dial("tcp", serverAddr)
 			},
 		}
-		cli, err := newListCache(pool, 1000, []byte(fmt.Sprintf("client_%d", i+1)))
+		cli, err := newListCacheResp2(pool, ListCacheResp2Config{
+			Logger:   &debugLogger{},
+			ClientID: []byte(fmt.Sprintf("client_%d", i+1)),
+			opIDGen:  &testOpIDGen{},
+		})
+
 		require.NoError(t, err)
 		caches = append(caches, cli)
 	}

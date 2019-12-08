@@ -35,6 +35,8 @@ type listCache struct {
 
 	cc *lru.Cache
 
+	opIDGen opIDGenerator
+
 	// lua scripts
 	luaRpush *redis.Script //rpush
 	luaLpop  *redis.Script //rpush
@@ -42,19 +44,36 @@ type listCache struct {
 	logger Logger
 }
 
-func newListCache(pool *redis.Pool, size int, clientID []byte) (*listCache, error) {
-	cc, err := lru.New(size)
+type ListCacheResp2Config struct {
+	Logger   Logger
+	Size     int
+	ClientID []byte
+	opIDGen  opIDGenerator
+}
+
+func newListCacheResp2(pool *redis.Pool, cfg ListCacheResp2Config) (*listCache, error) {
+	if cfg.Size <= 0 {
+		cfg.Size = 1000
+	}
+	if cfg.ClientID == nil {
+		cfg.ClientID = xid.New().Bytes()
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = &defaultLogger{}
+	}
+	if cfg.opIDGen == nil {
+		cfg.opIDGen = &defaultOpIDgen{}
+	}
+	cc, err := lru.New(cfg.Size)
 	if err != nil {
 		return nil, err
-	}
-	if clientID == nil {
-		clientID = xid.New().Bytes()
 	}
 	lc := &listCache{
 		cc:       cc,
 		pool:     pool,
-		clientID: clientID,
-		logger:   &debugLogger{},
+		clientID: cfg.ClientID,
+		logger:   cfg.Logger,
+		opIDGen:  cfg.opIDGen,
 		luaRpush: redis.NewScript(1, scriptRpush),
 		luaLpop:  redis.NewScript(1, scriptLpop),
 	}
@@ -67,8 +86,7 @@ func newListCache(pool *redis.Pool, size int, clientID []byte) (*listCache, erro
 //  - also do LTRIM
 //  - accept not only one values
 func (lc *listCache) Rpush(ctx context.Context, key, val string) error {
-	opID := xid.New().Bytes()
-	notif := newListNotif(lc.clientID, opID, listRpushCmd, key, val)
+	notif := newListNotif(lc.clientID, lc.opIDGen.Generate(), listRpushCmd, key, val)
 
 	_, err := redis.String(lc.execLua(ctx, lc.luaRpush, notif, key, val))
 	return err
@@ -104,8 +122,7 @@ func (lc *listCache) Get(ctx context.Context, key string) ([]string, error) {
 // Lpop currently executes the command directly to the server.
 func (lc *listCache) Lpop(ctx context.Context, key string) (string, bool, error) {
 
-	opID := xid.New().Bytes()
-	notif := newListNotif(lc.clientID, opID, listLpopCmd, key, "")
+	notif := newListNotif(lc.clientID, lc.opIDGen.Generate(), listLpopCmd, key, "")
 
 	val, err := redis.String(lc.execLua(ctx, lc.luaLpop, notif, key))
 	if err != nil {
@@ -198,12 +215,11 @@ func decodeListNotif(b []byte) (*listNotif, error) {
 
 func (lc *listCache) executeNotifs(cv *listCacheVal, notifs ...*listNotif) {
 	for _, nt := range notifs {
+		lc.logger.Debugf("rimcu:[%s]op=%v `%s` to key: %v", lc.name(), string(nt.OpID), nt.Cmd, nt.Key)
 		switch nt.Cmd {
 		case listRpushCmd:
-			lc.logger.Debugf("rimcu:[%s] append to key: %v", lc.name(), nt.Key)
 			cv.pushBack(nt.Arg)
 		case listLpopCmd:
-			lc.logger.Errorf("rimcu:[%s]pop list in key: %v", lc.name(), nt.Key)
 			cv.front()
 		default:
 			lc.logger.Errorf("rimcu:[%s]unknown list notif command: %v", lc.name(), nt.Cmd)
