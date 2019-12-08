@@ -206,7 +206,17 @@ func TestListCache_PopPropagate(t *testing.T) {
 		}
 	}
 
-	// check initial condition
+	// check initial condition:
+	// lc1 must have the values in the memory
+	{
+		time.Sleep(listWaitDur)
+
+		expected := []string{val1, val2, val3}
+
+		cv, ok := lc1.memGet(key1)
+		require.True(t, ok)
+		require.Equal(t, expected, cv.GetList())
+	}
 
 	// do the action
 	{
@@ -256,7 +266,7 @@ func createListCacheResp2TestClient(t *testing.T, numCli int) ([]*listCache, fun
 				return redis.Dial("tcp", serverAddr)
 			},
 		}
-		cli, err := newListCache(pool, 1000, []byte(fmt.Sprintf("client_%d", i)))
+		cli, err := newListCache(pool, 1000, []byte(fmt.Sprintf("client_%d", i+1)))
 		require.NoError(t, err)
 		caches = append(caches, cli)
 	}
