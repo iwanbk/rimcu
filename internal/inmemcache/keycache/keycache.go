@@ -3,7 +3,7 @@ package keycache
 import (
 	"time"
 
-	"github.com/hashicorp/golang-lru"
+	lru "github.com/hashicorp/golang-lru"
 	"github.com/iwanbk/rimcu/internal/notif"
 )
 

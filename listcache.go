@@ -35,6 +35,8 @@ type listCache struct {
 
 	cc *lru.Cache
 
+	opIDGen opIDGenerator
+
 	// lua scripts
 	luaRpush *redis.Script //rpush
 	luaLpop  *redis.Script //rpush
@@ -42,19 +44,36 @@ type listCache struct {
 	logger Logger
 }
 
-func newListCache(pool *redis.Pool, size int, clientID []byte) (*listCache, error) {
-	cc, err := lru.New(size)
+type ListCacheResp2Config struct {
+	Logger   Logger
+	Size     int
+	ClientID []byte
+	opIDGen  opIDGenerator
+}
+
+func newListCacheResp2(pool *redis.Pool, cfg ListCacheResp2Config) (*listCache, error) {
+	if cfg.Size <= 0 {
+		cfg.Size = 1000
+	}
+	if cfg.ClientID == nil {
+		cfg.ClientID = xid.New().Bytes()
+	}
+	if cfg.Logger == nil {
+		cfg.Logger = &defaultLogger{}
+	}
+	if cfg.opIDGen == nil {
+		cfg.opIDGen = &defaultOpIDgen{}
+	}
+	cc, err := lru.New(cfg.Size)
 	if err != nil {
 		return nil, err
-	}
-	if clientID == nil {
-		clientID = xid.New().Bytes()
 	}
 	lc := &listCache{
 		cc:       cc,
 		pool:     pool,
-		clientID: clientID,
-		logger:   &debugLogger{},
+		clientID: cfg.ClientID,
+		logger:   cfg.Logger,
+		opIDGen:  cfg.opIDGen,
 		luaRpush: redis.NewScript(1, scriptRpush),
 		luaLpop:  redis.NewScript(1, scriptLpop),
 	}
@@ -63,33 +82,14 @@ func newListCache(pool *redis.Pool, size int, clientID []byte) (*listCache, erro
 }
 
 // Rpush insert all the specified values at the tail of the list stored at key
-// TODO: also do LTRIM
+// TODO:
+//  - also do LTRIM
+//  - accept not only one values
 func (lc *listCache) Rpush(ctx context.Context, key, val string) error {
-	// do RPUSH
-	conn, err := lc.pool.GetContext(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
+	notif := newListNotif(lc.clientID, lc.opIDGen.Generate(), listRpushCmd, key, val)
 
-	// Send notif
-	opID := xid.New().Bytes()
-	notifMsg, err := newListNotif(lc.clientID, opID, listRpushCmd, key, val).Encode()
-	if err != nil {
-		return err
-	}
-
-	_, err = redis.String(lc.luaRpush.Do(conn, key, val, notifMsg))
-	if err != nil {
-		return err
-	}
-
-	// set dirty if cache exists
-	cv, ok := lc.memGet(key)
-	if ok {
-		cv.setDirty(opID)
-	}
-	return nil
+	_, err := redis.String(lc.execLua(ctx, lc.luaRpush, notif, key, val))
+	return err
 }
 
 // Get the whole list.
@@ -98,7 +98,7 @@ func (lc *listCache) Rpush(ctx context.Context, key, val string) error {
 // otherwise will get from the server
 func (lc *listCache) Get(ctx context.Context, key string) ([]string, error) {
 	cv, ok := lc.memGet(key)
-	if ok && !cv.isDirty() {
+	if ok && !cv.IsDirty() {
 		return cv.list, nil
 	}
 
@@ -113,7 +113,7 @@ func (lc *listCache) Get(ctx context.Context, key string) ([]string, error) {
 	}
 
 	// set cache
-	cv.setList(data)
+	cv.SetList(data)
 	return data, nil
 }
 
@@ -121,33 +121,41 @@ func (lc *listCache) Get(ctx context.Context, key string) ([]string, error) {
 //
 // Lpop currently executes the command directly to the server.
 func (lc *listCache) Lpop(ctx context.Context, key string) (string, bool, error) {
-	// do RPUSH
-	conn, err := lc.pool.GetContext(ctx)
-	if err != nil {
-		return "", false, err
-	}
-	defer conn.Close()
 
-	// Send notif
-	// TODO: make it one step with Lua script
-	opID := xid.New().Bytes()
-	notifMsg, err := newListNotif(lc.clientID, opID, listLpopCmd, key, "").Encode()
-	if err != nil {
-		return "", false, err
-	}
+	notif := newListNotif(lc.clientID, lc.opIDGen.Generate(), listLpopCmd, key, "")
 
-	val, err := redis.String(lc.luaLpop.Do(conn, key, notifMsg))
+	val, err := redis.String(lc.execLua(ctx, lc.luaLpop, notif, key))
 	if err != nil {
 		return "", false, fmt.Errorf("lpop failed: %v", err)
 	}
 
-	// update cache
-	cv, ok := lc.memGet(key)
-	if ok {
-		cv.setDirty(opID)
+	return val, true, nil
+}
+
+func (lc *listCache) execLua(ctx context.Context, scr *redis.Script, nt *listNotif, key string, args ...interface{}) (interface{}, error) {
+	notifMsg, err := nt.Encode()
+	if err != nil {
+		return nil, err
+	}
+	conn, err := lc.pool.GetContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	cv, hasCache := lc.memGet(key)
+	if hasCache {
+		cv.SetDirty(nt.OpID)
 	}
 
-	return val, true, nil
+	scrArgs := append([]interface{}{key, notifMsg}, args...)
+	val, err := scr.Do(conn, scrArgs...)
+
+	if err != nil && hasCache {
+		cv.ClearDirty(nt.OpID)
+	}
+
+	return val, err
 }
 
 func (lc *listCache) getFromServer(ctx context.Context, key string) ([]string, error) {
@@ -171,6 +179,10 @@ func (lc *listCache) memGet(key string) (*listCacheVal, bool) {
 
 func (lc *listCache) memSet(key string, cv *listCacheVal) {
 	lc.cc.Add(key, cv)
+}
+
+func (lc *listCache) name() string {
+	return string(lc.clientID)
 }
 
 // listNotif represents notification of the list write operation
@@ -203,15 +215,14 @@ func decodeListNotif(b []byte) (*listNotif, error) {
 
 func (lc *listCache) executeNotifs(cv *listCacheVal, notifs ...*listNotif) {
 	for _, nt := range notifs {
+		lc.logger.Debugf("rimcu:[%s]op=%v `%s` to key: %v", lc.name(), string(nt.OpID), nt.Cmd, nt.Key)
 		switch nt.Cmd {
 		case listRpushCmd:
-			lc.logger.Debugf("append list to key: %v", nt.Key)
 			cv.pushBack(nt.Arg)
 		case listLpopCmd:
-			lc.logger.Errorf("pop list in key: %v", nt.Key)
 			cv.front()
 		default:
-			lc.logger.Errorf("rimcu: unknown list notif command: %v", nt.Cmd)
+			lc.logger.Errorf("rimcu:[%s]unknown list notif command: %v", lc.name(), nt.Cmd)
 		}
 	}
 }
@@ -225,19 +236,19 @@ func (lc *listCache) handleNotifData(data []byte) {
 		return
 	}
 
-	//lc.logger.Debugf("got notif from %v", string(nt.ClientID))
-
 	// if not in our memory, ignore
 	cv, ok := lc.memGet(nt.Key)
 	if !ok {
 		//lc.logger.Debugf("[rimcu]%s ignore list to key: %v : key not stored in local cache", string(lc.clientID), nt.Key)
 		return
 	}
+	cv.mtx.Lock()
+	defer cv.mtx.Unlock()
 
 	// if dirty, buffer it
-	if cv.isDirty() {
-		if !bytes.Equal(cv.getDirtyID(), nt.OpID) {
-			lc.logger.Debugf(("[rimcu]handleNotif: key cache is dirty, append notif"))
+	if cv.isDirtyNoLock() {
+		if !cv.canClearDirty(nt, lc.clientID) {
+			lc.logger.Debugf("rimcu[%s]handleNotif: key `%s` is dirty, append notif", lc.name(), nt.Key)
 			cv.appendNotif(nt)
 			return
 		}
@@ -245,10 +256,21 @@ func (lc *listCache) handleNotifData(data []byte) {
 		// finally got the dirty opID, need to execute the buffered notif
 		lc.executeNotifs(cv, cv.getNotifBuffer()...)
 		lc.executeNotifs(cv, nt)
+		lc.logger.Debugf("\trimcu[%s]handleNotif: clear dirty key `%s`", lc.name(), nt.Key)
 		cv.clearDirty()
 		return
 	}
 	lc.executeNotifs(cv, nt)
+}
+
+// check if the notification can clear dirty state of this list of the given client ID
+//
+// TODO: maybe check for the timestampt as well
+func (cv *listCacheVal) canClearDirty(nt *listNotif, clientID []byte) bool {
+	if !bytes.Equal(clientID, nt.ClientID) {
+		return false
+	}
+	return bytes.Equal(cv.getDirtyID(), nt.OpID)
 }
 
 func (lc *listCache) handleNotifDisconnect() {
@@ -264,47 +286,49 @@ type listCacheVal struct {
 	notifBuffer []*listNotif
 }
 
-func (lcv *listCacheVal) setList(data []string) {
+func (lcv *listCacheVal) SetList(data []string) {
 	lcv.mtx.Lock()
 	lcv.list = data
 	lcv.mtx.Unlock()
 }
-func (lcv *listCacheVal) setDirty(opsID []byte) {
+
+func (lcv *listCacheVal) SetDirty(opsID []byte) {
 	lcv.mtx.Lock()
+	defer lcv.mtx.Unlock()
 	lcv.dirtyTs = time.Now().Unix()
 	lcv.dirtyID = opsID
-	lcv.mtx.Unlock()
 }
 
-func (lcv *listCacheVal) isDirty() (isDirty bool) {
+func (lcv *listCacheVal) ClearDirty(opID []byte) {
+	lcv.mtx.Lock()
+	defer lcv.mtx.Unlock()
+	if !bytes.Equal(opID, lcv.getDirtyID()) {
+		return
+	}
+	lcv.clearDirty()
+}
+
+func (lcv *listCacheVal) IsDirty() (isDirty bool) {
 	lcv.mtx.RLock()
-
-	isDirty = lcv.dirtyTs != 0
-
+	isDirty = lcv.isDirtyNoLock()
 	lcv.mtx.RUnlock()
 	return
 }
 
+func (lcv *listCacheVal) isDirtyNoLock() (isDirty bool) {
+	return lcv.dirtyTs != 0
+}
 func (lcv *listCacheVal) getDirtyID() (dirtyID []byte) {
-	lcv.mtx.RLock()
-
-	dirtyID = lcv.dirtyID
-
-	lcv.mtx.RUnlock()
-	return
+	return lcv.dirtyID
 }
 
 func (lcv *listCacheVal) clearDirty() {
-	lcv.mtx.Lock()
 	lcv.dirtyTs = 0
 	lcv.dirtyID = nil
-	lcv.mtx.Unlock()
 }
 
 func (lcv *listCacheVal) appendNotif(nt *listNotif) {
-	lcv.mtx.Lock()
 	lcv.notifBuffer = append(lcv.notifBuffer, nt)
-	lcv.mtx.Unlock()
 }
 
 func (lcv *listCacheVal) GetList() (list []string) {
@@ -315,16 +339,10 @@ func (lcv *listCacheVal) GetList() (list []string) {
 }
 
 func (lcv *listCacheVal) getNotifBuffer() []*listNotif {
-	lcv.mtx.RLock()
-	bufs := lcv.notifBuffer
-	lcv.mtx.RUnlock()
-	return bufs
+	return lcv.notifBuffer
 }
 
 func (lcv *listCacheVal) front() (string, bool) {
-	lcv.mtx.Lock()
-	defer lcv.mtx.Unlock()
-
 	if len(lcv.list) == 0 {
 		return "", false
 	}
@@ -334,9 +352,7 @@ func (lcv *listCacheVal) front() (string, bool) {
 }
 
 func (lcv *listCacheVal) pushBack(val string) {
-	lcv.mtx.Lock()
 	lcv.list = append(lcv.list, val)
-	lcv.mtx.Unlock()
 }
 
 const (
@@ -347,8 +363,8 @@ const (
 
 const (
 	scriptRpush = `
-redis.call('RPUSH', KEYS[1], ARGV[1])
-redis.call('publish', 'rimcu:list', ARGV[2])
+redis.call('RPUSH', KEYS[1], ARGV[2])
+redis.call('publish', 'rimcu:list', ARGV[1])
 return 'OK'
 	`
 	scriptLpop = `
