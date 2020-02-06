@@ -14,6 +14,8 @@ import (
 var (
 	// ErrNotFound returned when there is no cache of the given key
 	ErrNotFound = errors.New("not found")
+
+	ErrPoolExhausted = errors.New("rimcu pool exhausted")
 )
 
 // Conn is a single redis connection.
