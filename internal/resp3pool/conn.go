@@ -59,6 +59,14 @@ func newConn(netConn net.Conn, pool *Pool, invalidCb InvalidateCbFunc) *Conn {
 }
 
 func (conn *Conn) start() error {
+	conn.mtx.Lock()
+	if conn.runFlag == true {
+		conn.mtx.Unlock()
+		return nil
+	}
+	conn.runFlag = true
+	conn.mtx.Unlock()
+
 	conn.run() // run in background
 
 	_, err := conn.do("hello", "3")
@@ -156,9 +164,6 @@ func (c *Conn) do(args ...string) (*resp3.Value, error) {
 }
 
 func (c *Conn) run() {
-	c.mtx.Lock()
-	c.runFlag = true
-	c.mtx.Unlock()
 	go func() {
 		defer func() {
 			c.mtx.Lock()
