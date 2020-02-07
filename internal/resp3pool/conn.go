@@ -60,7 +60,8 @@ func newConn(netConn net.Conn, pool *Pool, invalidCb InvalidateCbFunc) *Conn {
 
 func (conn *Conn) start() error {
 	conn.mtx.Lock()
-	if conn.runFlag == true {
+
+	if conn.runFlag { // already run
 		conn.mtx.Unlock()
 		return nil
 	}
