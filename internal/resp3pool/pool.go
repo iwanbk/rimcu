@@ -48,6 +48,14 @@ type InvalidateCbFunc func(uint64)
 // ctx is context being used to wait when the pool is exhausted.
 // it should have timeout to avoid waiting indefinitely
 func (p *Pool) Get(ctx context.Context) (*Conn, error) {
+	conn, err := p.get(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return conn, conn.start()
+}
+
+func (p *Pool) get(ctx context.Context) (*Conn, error) {
 	select {
 	case p.maxConnsCh <- struct{}{}:
 	case <-ctx.Done():
@@ -93,7 +101,7 @@ func (p *Pool) dial(invalidCb InvalidateCbFunc) (*Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newConn(c, p, invalidCb)
+	return newConn(c, p, invalidCb), nil
 }
 
 // putConnBack put the connection back to the the end of the pool
@@ -102,4 +110,12 @@ func (p *Pool) putConnBack(conn *Conn) {
 	p.conns = append(p.conns, conn)
 	p.mtx.Unlock()
 	<-p.maxConnsCh
+}
+
+func (p *Pool) Close() {
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+	for _, conn := range p.conns {
+		conn.destroy()
+	}
 }
