@@ -14,6 +14,8 @@ import (
 var (
 	// ErrNotFound returned when there is no cache of the given key
 	ErrNotFound = errors.New("not found")
+
+	ErrPoolExhausted = errors.New("rimcu pool exhausted")
 )
 
 // Conn is a single redis connection.
@@ -39,10 +41,12 @@ type Conn struct {
 	mtx sync.Mutex
 	// slots store all slots that is tracked by this connection
 	slots map[uint64]struct{}
+
+	runFlag bool
 }
 
-func newConn(netConn net.Conn, pool *Pool, invalidCb InvalidateCbFunc) (*Conn, error) {
-	conn := &Conn{
+func newConn(netConn net.Conn, pool *Pool, invalidCb InvalidateCbFunc) *Conn {
+	return &Conn{
 		rd:        resp3.NewReader(netConn),
 		w:         resp3.NewWriter(netConn),
 		conn:      netConn,
@@ -52,23 +56,35 @@ func newConn(netConn net.Conn, pool *Pool, invalidCb InvalidateCbFunc) (*Conn, e
 		invalidCb: invalidCb,
 		slots:     make(map[uint64]struct{}),
 	}
+}
+
+func (conn *Conn) start() error {
+	conn.mtx.Lock()
+
+	if conn.runFlag { // already run
+		conn.mtx.Unlock()
+		return nil
+	}
+	conn.runFlag = true
+	conn.mtx.Unlock()
+
 	conn.run() // run in background
 
 	_, err := conn.do("hello", "3")
 	if err != nil {
 		conn.Close()
-		return nil, err
+		return err
 	}
 	// TODO : check result value
 
 	_, err = conn.do("CLIENT", "TRACKING", "ON")
 	if err != nil {
 		conn.Close()
-		return nil, err
+		return err
 	}
 	// TODO : check result value
 
-	return conn, nil
+	return nil
 }
 
 // Close puts the connection back to the connection pool,
@@ -78,11 +94,16 @@ func (c *Conn) Close() {
 }
 
 // destroy this connection make it invalid to be used
-/* TODO : call it from the pool
 func (c *Conn) destroy() {
+	c.mtx.Lock()
+	runFlag := c.runFlag
+	c.mtx.Unlock()
+
+	if runFlag {
+		c.stopCh <- struct{}{}
+	}
 	c.conn.Close()
-	c.stopCh <- struct{}{}
-}*/
+}
 
 func (c *Conn) Setex(key, val string, exp int) error {
 	_, err := c.do("SET", key, val, "EX", strconv.Itoa(exp))
@@ -145,6 +166,11 @@ func (c *Conn) do(args ...string) (*resp3.Value, error) {
 
 func (c *Conn) run() {
 	go func() {
+		defer func() {
+			c.mtx.Lock()
+			c.runFlag = false
+			c.mtx.Unlock()
+		}()
 		for {
 			select {
 			case <-c.stopCh:

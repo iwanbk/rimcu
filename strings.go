@@ -62,8 +62,6 @@ func NewStringsCache(cfg StringsCacheConfig) *StringsCache {
 // Setex sets the key to hold the string value with the given expiration second.
 //
 // Calling this func will invalidate inmem cache of this key's slot in other nodes.
-//
-// TODO: also set inmem cache
 func (sc *StringsCache) Setex(ctx context.Context, key, val string, exp int) error {
 	conn, err := sc.pool.Get(ctx)
 	if err != nil {
@@ -71,6 +69,7 @@ func (sc *StringsCache) Setex(ctx context.Context, key, val string, exp int) err
 	}
 	defer conn.Close()
 
+	// we don't set in-mem cache because Redis doesn't enable tracking on Write operation.
 	return conn.Setex(key, val, exp)
 }
 
