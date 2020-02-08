@@ -1,4 +1,4 @@
-package rimcu
+package resp2
 
 import (
 	"github.com/gomodule/redigo/redis"
