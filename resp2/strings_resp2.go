@@ -1,17 +1,23 @@
-package rimcu
+package resp2
 
 import (
 	"bytes"
 	"context"
+	"errors"
+
 	"github.com/gomodule/redigo/redis"
 	"github.com/iwanbk/rimcu/internal/inmemcache/keycache"
 	"github.com/iwanbk/rimcu/internal/notif"
 	"github.com/rs/xid"
 )
 
-// StringsCacheResp2 represents strings cache which use redis RESP2 protocol
+var (
+	ErrNotFound = errors.New("not found")
+)
+
+// StringsCache represents strings cache which use redis RESP2 protocol
 // to synchronize data with the redis server.
-type StringsCacheResp2 struct {
+type StringsCache struct {
 	pool *redis.Pool
 
 	// Auto generated unique client name, needed as synchronization identifier
@@ -27,17 +33,20 @@ type StringsCacheResp2 struct {
 	logger Logger
 }
 
-// StringsCacheResp2Config is config for the StringsCacheResp2
+// StringsCacheResp2Config is config for the StringsCache
 type StringsCacheResp2Config struct {
 	// inmem cache max size
 	CacheSize int
 
 	// Logger for this lib, if nil will use Go log package which only print log on error
 	Logger Logger
+
+	// ID of the cache client, leave it to nil will generate unique value
+	ClientID []byte
 }
 
-// NewStringsCacheResp2 creates new StringsCacheResp2 object
-func NewStringsCacheResp2(cfg StringsCacheResp2Config, pool *redis.Pool) (*StringsCacheResp2, error) {
+// NewStringsCacheResp2 creates new StringsCache object
+func NewStringsCacheResp2(cfg StringsCacheResp2Config, pool *redis.Pool) (*StringsCache, error) {
 	cc, err := keycache.New(cfg.CacheSize)
 	if err != nil {
 		return nil, err
@@ -48,8 +57,12 @@ func NewStringsCacheResp2(cfg StringsCacheResp2Config, pool *redis.Pool) (*Strin
 		logger = &defaultLogger{}
 	}
 
-	sc := &StringsCacheResp2{
-		name:     xid.New().Bytes(),
+	if cfg.ClientID == nil {
+		cfg.ClientID = xid.New().Bytes()
+	}
+
+	sc := &StringsCache{
+		name:     cfg.ClientID,
 		pool:     pool,
 		logger:   logger,
 		cc:       cc,
@@ -61,7 +74,7 @@ func NewStringsCacheResp2(cfg StringsCacheResp2Config, pool *redis.Pool) (*Strin
 }
 
 // Close closes the cache, release all resources
-func (sc *StringsCacheResp2) Close() error {
+func (sc *StringsCache) Close() error {
 	sc.pool.Close()
 	return nil
 }
@@ -71,7 +84,7 @@ func (sc *StringsCacheResp2) Close() error {
 // Calling this func will
 // - invalidate inmem cache of other nodes
 // - initialize in mem cache of this node
-func (sc *StringsCacheResp2) Setex(ctx context.Context, key, val string, expSecond int) error {
+func (sc *StringsCache) Setex(ctx context.Context, key, val string, expSecond int) error {
 	// get conn
 	conn, err := sc.pool.GetContext(ctx)
 	if err != nil {
@@ -98,10 +111,11 @@ func (sc *StringsCacheResp2) Setex(ctx context.Context, key, val string, expSeco
 //
 // If the value not exists in the memory cache, it will try to get from the redis server
 // and set the expiration to the given expSecond
-func (sc *StringsCacheResp2) Get(ctx context.Context, key string, expSecond int) (string, error) {
+func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (string, error) {
 	// try to get from in memory cache
 	val, ok := sc.getMemCache(key)
 	if ok {
+		sc.logger.Debugf("[%s] GET: already in memcache", string(sc.name))
 		return val, nil
 	}
 
@@ -114,6 +128,7 @@ func (sc *StringsCacheResp2) Get(ctx context.Context, key string, expSecond int)
 
 	val, err = redis.String(conn.Do("GET", key))
 	if err != nil {
+		sc.logger.Debugf("[%s] GET failed: %v", string(sc.name), err)
 		if err == redis.ErrNil {
 			err = ErrNotFound
 		}
@@ -127,7 +142,7 @@ func (sc *StringsCacheResp2) Get(ctx context.Context, key string, expSecond int)
 }
 
 // Del deletes the cache of the given key
-func (sc *StringsCacheResp2) Del(ctx context.Context, key string) error {
+func (sc *StringsCache) Del(ctx context.Context, key string) error {
 	sc.cc.Del(key)
 
 	// get conn
@@ -145,21 +160,22 @@ func (sc *StringsCacheResp2) Del(ctx context.Context, key string) error {
 	return err
 }
 
-func (sc *StringsCacheResp2) setMemCache(key, val string, expSecond int) {
+func (sc *StringsCache) setMemCache(key, val string, expSecond int) {
+	sc.logger.Debugf("[%s] setMemCache %s", string(sc.name), key)
 	sc.cc.SetEx(key, val, expSecond)
 }
 
-func (sc *StringsCacheResp2) getMemCache(key string) (string, bool) {
+func (sc *StringsCache) getMemCache(key string) (string, bool) {
 	return sc.cc.Get(key)
 }
 
 // handle notif subscriber disconnected event
-func (sc *StringsCacheResp2) handleNotifDisconnect() {
+func (sc *StringsCache) handleNotifDisconnect() {
 	sc.cc.Clear() // TODO : find other ways than complete clear like this
 }
 
 // handleNotif handle raw notification from the redis
-func (sc *StringsCacheResp2) handleNotif(data []byte) {
+func (sc *StringsCache) handleNotif(data []byte) {
 	// decode notification
 	nt, err := notif.Decode(data)
 	if err != nil {
@@ -172,7 +188,7 @@ func (sc *StringsCacheResp2) handleNotif(data []byte) {
 		return
 	}
 
-	sc.logger.Debugf("[%s]msg from %s, slot:%v\n", sc.name, nt.ClientID, nt.Slot)
+	sc.logger.Debugf("[%s]msg from %s, key:%v\n", string(sc.name), string(nt.ClientID), nt.Key)
 
 	sc.cc.HandleNotif(nt)
 }

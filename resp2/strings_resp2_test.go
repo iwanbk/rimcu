@@ -1,18 +1,21 @@
-package rimcu
+package resp2
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/alicebob/miniredis"
 	"github.com/gomodule/redigo/redis"
+	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
-	"os"
 )
 
-const (
+var (
 	testExpSecond = 1000
+	syncTimeWait  = 1 * time.Second
 )
 
 // Test Set WILL initiate in memory cache
@@ -271,9 +274,9 @@ func TestStringsCacheResp2_Del_ValidKey_Propagate(t *testing.T) {
 	}
 }
 
-func createStringsResp2TestClient(t *testing.T, numCli int) ([]*StringsCacheResp2, func()) {
+func createStringsResp2TestClient(t *testing.T, numCli int) ([]*StringsCache, func()) {
 	var (
-		caches     []*StringsCacheResp2
+		caches     []*StringsCache
 		serverAddr = os.Getenv("TEST_REDIS_ADDR")
 		server     *miniredis.Miniredis
 	)
@@ -298,6 +301,7 @@ func createStringsResp2TestClient(t *testing.T, numCli int) ([]*StringsCacheResp
 		cli, err := NewStringsCacheResp2(StringsCacheResp2Config{
 			CacheSize: 10000,
 			Logger:    &debugLogger{},
+			ClientID:  []byte(fmt.Sprintf("client_%d", i+1)),
 		}, pool)
 		require.NoError(t, err)
 		caches = append(caches, cli)
@@ -311,4 +315,8 @@ func createStringsResp2TestClient(t *testing.T, numCli int) ([]*StringsCacheResp
 			cli.Close()
 		}
 	}
+}
+
+func generateRandomKey() string {
+	return xid.New().String()
 }

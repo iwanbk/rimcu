@@ -1,4 +1,4 @@
-package rimcu
+package resp2
 
 import (
 	"bytes"
