@@ -22,7 +22,11 @@ It needs Redis server with RESP3 support which currently only available in Redis
 
 ### TODO
 
-- improve reliability of the connection pool
+improve the connection pool:
+- [x] maximum number of connections
+- [x] waiting for connection with timeout
+- [] idle connection checking
+- [] health checking 
 
 ## StringsCacheResp2
 
