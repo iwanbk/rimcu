@@ -60,12 +60,17 @@ func NewStringsCache(cfg StringsCacheConfig) *StringsCache {
 	return sc
 }
 
+// StringValue defines string with Nil flag.
+type StringValue struct {
+	Nil bool
+	Val string
+}
+
 // Setex sets the key to hold the string value with the given expiration second.
 //
 // Calling this func will invalidate inmem cache of this key's slot in other nodes.
 func (sc *StringsCache) Setex(ctx context.Context, key, val string, exp int) error {
-	_, err := sc.do(ctx, cmdSet, key, val, "EX", strconv.Itoa(exp))
-	return err
+	return sc.write(ctx, cmdSet, key, val, "EX", strconv.Itoa(exp))
 }
 
 // Get gets the value of key.
@@ -92,7 +97,88 @@ func (sc *StringsCache) Get(ctx context.Context, key string, exp int) (string, e
 
 // Del deletes the key in local and remote
 func (sc *StringsCache) Del(ctx context.Context, key string) error {
-	_, err := sc.do(ctx, cmdDel, key)
+	return sc.write(ctx, cmdDel, key)
+}
+
+// Append value to the end of the key
+func (sc *StringsCache) Append(ctx context.Context, key, val string) error {
+	return sc.write(ctx, cmdAppend, key, val)
+}
+
+// MSet set multiple key values at once.
+//
+// The format of the values:
+//
+// - key1, val1, key2, val2, ....
+func (sc *StringsCache) MSet(ctx context.Context, values ...string) error {
+	lenVal := len(values)
+	//check argument
+	if lenVal == 0 || (lenVal%2 != 0) {
+		return ErrInvalidArgs
+	}
+
+	_, err := sc._do(ctx, cmdMSet, values...)
+	if err != nil {
+		return err
+	}
+
+	// del inmemcache
+	for i, val := range values {
+		if i%2 == 0 {
+			sc.memDel(val)
+		}
+	}
+
+	return nil
+
+}
+
+// MGet get values of multiple keys at once.
+//
+// if the key exists, it will cached in the memory cache with exp seconds expiration time
+func (sc *StringsCache) MGet(ctx context.Context, exp int, keys ...string) ([]StringValue, error) {
+	var (
+		getKeys    []string // keys to get from the server
+		getIndexes []int    // index of the key to get from the server
+		results    = make([]StringValue, len(keys))
+		tsExp      = time.Duration(exp) * time.Second
+	)
+
+	// pick only keys that not exist in the cache
+	for i, key := range keys {
+		// check in mem
+		val, ok := sc.memGet(key)
+		if ok {
+			results[i] = StringValue{
+				Nil: false,
+				Val: val,
+			}
+			continue
+		}
+		getKeys = append(getKeys, key)
+		getIndexes = append(getIndexes, i)
+	}
+
+	resp, err := sc._do(ctx, cmdMGet, getKeys...)
+	if err != nil {
+		return nil, err
+	}
+
+	for i, elem := range resp.Elems {
+		strVal := StringValue{
+			Nil: sc.isNullString(elem),
+			Val: elem.Str,
+		}
+		results[getIndexes[i]] = strVal
+		if !strVal.Nil {
+			sc.memSet(getKeys[i], strVal.Val, tsExp)
+		}
+	}
+	return results, nil
+}
+
+func (sc *StringsCache) write(ctx context.Context, cmd, key string, args ...string) error {
+	_, err := sc.do(ctx, cmd, key, args...)
 	if err != nil {
 		return err
 	}
@@ -102,19 +188,25 @@ func (sc *StringsCache) Del(ctx context.Context, key string) error {
 	return nil
 }
 
-// TODO
+// Close the strings cache and release it's all resources
 func (sc *StringsCache) Close() error {
+	sc.pool.Close()
 	return nil
 }
 
 // TODO: don't expose resp3.Value to this package
 func (sc *StringsCache) do(ctx context.Context, cmd, key string, args ...string) (*resp3.Value, error) {
+	return sc._do(ctx, cmd, append([]string{key}, args...)...)
+}
+
+func (sc *StringsCache) _do(ctx context.Context, cmd string, args ...string) (*resp3.Value, error) {
+
 	conn, err := sc.pool.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	resp, err := conn.Do(cmd, key, args...)
+	resp, err := conn.Do(cmd, args...)
 
 	conn.Close()
 
@@ -127,12 +219,15 @@ func (sc *StringsCache) getString(ctx context.Context, cmd, key string, args ...
 		return "", err
 	}
 
-	if resp.Str == "" {
-		// TODO : differentiate between empty string and nil value
-		// ErrNotFound must only be returned on nil value
+	if sc.isNullString(resp) {
 		return "", ErrNotFound
 	}
+
 	return resp.Str, nil
+}
+
+func (sc *StringsCache) isNullString(resp *resp3.Value) bool {
+	return resp.Type == '_'
 }
 
 // memSet sets the value of the given key.

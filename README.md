@@ -20,13 +20,22 @@ StringsCache is cache for redis [`strings`](https://redis.io/topics/data-types#s
 
 It needs Redis server with RESP3 support which currently only available in Redis 6 (unstable)
 
+### Implemented Commands
+
+- [x] Setex
+- [x] Get
+- [x] Del
+- [x] MSet
+- [x] MGet
+- [ ] Append
+
 ### TODO
 
 improve the connection pool:
 - [x] maximum number of connections
 - [x] waiting for connection with timeout
-- [] idle connection checking
-- [] health checking 
+- [ ] idle connection checking
+- [ ] health checking 
 
 ## StringsCacheResp2
 

@@ -96,14 +96,16 @@ func (c *Conn) destroy() {
 	runFlag := c.runFlag
 	c.mtx.Unlock()
 
+	c.conn.Close()
+
 	if runFlag {
 		c.stopCh <- struct{}{}
 	}
-	c.conn.Close()
+
 }
 
-func (c *Conn) Do(cmd, key string, args ...string) (*resp3.Value, error) {
-	cmds := append([]string{cmd, key}, args...)
+func (c *Conn) Do(cmd string, args ...string) (*resp3.Value, error) {
+	cmds := append([]string{cmd}, args...)
 	return c.do(cmds...)
 }
 
