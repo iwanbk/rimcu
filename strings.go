@@ -2,12 +2,13 @@ package rimcu
 
 import (
 	"context"
-	"sync"
+	"strconv"
 	"time"
 
-	"github.com/iwanbk/rimcu/internal/crc"
 	"github.com/iwanbk/rimcu/internal/resp3pool"
+	"github.com/iwanbk/rimcu/logger"
 	"github.com/karlseguin/ccache"
+	"github.com/smallnest/resp3"
 )
 
 // StringsCache represents in memory strings cache which sync the cache
@@ -21,7 +22,7 @@ type StringsCache struct {
 	// slots maps the redis slot into the cache key.
 	slots *slot
 
-	logger Logger
+	logger logger.Logger
 }
 
 // StringsCacheConfig represents config of StringsCache
@@ -33,8 +34,8 @@ type StringsCacheConfig struct {
 	// Default is 100K
 	CacheSize int
 
-	// logger to be used, use default logger which print on error
-	Logger Logger
+	// logger to be used, use default logger which print to stderr on error
+	Logger logger.Logger
 }
 
 // NewStringsCache create strings cache with redis RESP3 protocol
@@ -43,7 +44,7 @@ func NewStringsCache(cfg StringsCacheConfig) *StringsCache {
 		cfg.CacheSize = 100000
 	}
 	if cfg.Logger == nil {
-		cfg.Logger = &defaultLogger{}
+		cfg.Logger = logger.NewDefault()
 	}
 
 	sc := &StringsCache{
@@ -63,14 +64,8 @@ func NewStringsCache(cfg StringsCacheConfig) *StringsCache {
 //
 // Calling this func will invalidate inmem cache of this key's slot in other nodes.
 func (sc *StringsCache) Setex(ctx context.Context, key, val string, exp int) error {
-	conn, err := sc.pool.Get(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	// we don't set in-mem cache because Redis doesn't enable tracking on Write operation.
-	return conn.Setex(key, val, exp)
+	_, err := sc.do(ctx, cmdSet, key, val, "EX", strconv.Itoa(exp))
+	return err
 }
 
 // Get gets the value of key.
@@ -84,14 +79,7 @@ func (sc *StringsCache) Get(ctx context.Context, key string, exp int) (string, e
 		return val, nil
 	}
 
-	// get fom redis
-	conn, err := sc.pool.Get(ctx)
-	if err != nil {
-		return "", err
-	}
-	defer conn.Close()
-
-	val, err = conn.Get(key)
+	val, err := sc.getString(ctx, cmdGet, key)
 	if err != nil {
 		return "", err
 	}
@@ -104,14 +92,7 @@ func (sc *StringsCache) Get(ctx context.Context, key string, exp int) (string, e
 
 // Del deletes the key in local and remote
 func (sc *StringsCache) Del(ctx context.Context, key string) error {
-	// delete from redis
-	conn, err := sc.pool.Get(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	err = conn.Del(key)
+	_, err := sc.do(ctx, cmdDel, key)
 	if err != nil {
 		return err
 	}
@@ -124,6 +105,34 @@ func (sc *StringsCache) Del(ctx context.Context, key string) error {
 // TODO
 func (sc *StringsCache) Close() error {
 	return nil
+}
+
+// TODO: don't expose resp3.Value to this package
+func (sc *StringsCache) do(ctx context.Context, cmd, key string, args ...string) (*resp3.Value, error) {
+	conn, err := sc.pool.Get(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := conn.Do(cmd, key, args...)
+
+	conn.Close()
+
+	return resp, err
+}
+
+func (sc *StringsCache) getString(ctx context.Context, cmd, key string, args ...string) (string, error) {
+	resp, err := sc.do(ctx, cmd, key, args...)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.Str == "" {
+		// TODO : differentiate between empty string and nil value
+		// ErrNotFound must only be returned on nil value
+		return "", ErrNotFound
+	}
+	return resp.Str, nil
 }
 
 // memSet sets the value of the given key.
@@ -162,73 +171,4 @@ func (sc *StringsCache) invalidate(slot uint64) {
 	for key := range se {
 		sc.cc.Delete(key)
 	}
-}
-
-type slot struct {
-	mtx   sync.Mutex
-	slots map[uint64]slotEntries
-}
-
-func newSlot() *slot {
-	return &slot{
-		slots: make(map[uint64]slotEntries),
-	}
-}
-
-func (s *slot) addKey(key string) {
-	var (
-		slotKey = crc.RedisCrc([]byte(key))
-		se      slotEntries
-		ok      bool
-	)
-
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
-
-	se, ok = s.slots[slotKey]
-	if !ok {
-		se = makeSlotEntries()
-	}
-	se.add(key)
-	s.slots[slotKey] = se
-}
-
-func (s *slot) removeKey(key string) {
-	var (
-		slotKey = crc.RedisCrc([]byte(key))
-	)
-	s.mtx.Lock()
-	defer s.mtx.Unlock()
-
-	se, ok := s.slots[slotKey]
-	if !ok {
-		return
-	}
-	delete(se, key)
-	s.slots[slotKey] = se
-}
-
-func (s *slot) removeSlot(slotKey uint64) map[string]struct{} {
-	s.mtx.Lock()
-	se, ok := s.slots[slotKey]
-	if !ok {
-		s.mtx.Unlock()
-		return nil
-	}
-	delete(s.slots, slotKey)
-
-	s.mtx.Unlock()
-	return se
-}
-
-// slot entries
-type slotEntries map[string]struct{}
-
-func makeSlotEntries() slotEntries {
-	se := make(map[string]struct{})
-	return slotEntries(se)
-}
-
-func (se slotEntries) add(key string) {
-	se[key] = struct{}{}
 }

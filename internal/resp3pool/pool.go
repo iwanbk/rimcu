@@ -5,6 +5,8 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/iwanbk/rimcu/logger"
 )
 
 // Pool represents a pool of connection.
@@ -21,12 +23,15 @@ type Pool struct {
 	// - up/added when we create new connection
 	// - down/removed when: the conn returned to the pool
 	maxConnsCh chan struct{}
+
+	logger logger.Logger
 }
 
 type PoolConfig struct {
 	ServerAddr   string
 	MaxConns     int // default:50
 	InvalidateCb InvalidateCbFunc
+	Logger       logger.Logger
 }
 
 // NewPool creates new connection pool from the given server address
@@ -34,16 +39,20 @@ func NewPool(cfg PoolConfig) *Pool {
 	if cfg.MaxConns <= 0 {
 		cfg.MaxConns = 50
 	}
+	if cfg.Logger == nil {
+		cfg.Logger = logger.NewDefault()
+	}
 	return &Pool{
 		serverAddr:   cfg.ServerAddr,
 		invalidateCb: cfg.InvalidateCb,
 		maxConnsCh:   make(chan struct{}, cfg.MaxConns),
+		logger:       cfg.Logger,
 	}
 }
 
 type InvalidateCbFunc func(uint64)
 
-// Get connections from the pool or create a new one.
+// get connections from the pool or create a new one.
 //
 // ctx is context being used to wait when the pool is exhausted.
 // it should have timeout to avoid waiting indefinitely

@@ -2,6 +2,7 @@ package rimcu
 
 import (
 	"context"
+	"log"
 	"testing"
 	"time"
 
@@ -266,6 +267,7 @@ func createStringsCacheTestClient(t *testing.T, numCli int) ([]*StringsCache, fu
 	for i := 0; i < numCli; i++ {
 		sc := NewStringsCache(StringsCacheConfig{
 			ServerAddr: testRedis6ServerAddr,
+			Logger:     &debugLogger{},
 		})
 		caches = append(caches, sc)
 	}
@@ -275,4 +277,15 @@ func createStringsCacheTestClient(t *testing.T, numCli int) ([]*StringsCache, fu
 			cli.Close()
 		}
 	}
+}
+
+type debugLogger struct {
+}
+
+func (d *debugLogger) Debugf(format string, v ...interface{}) {
+	log.Printf("DEBUG "+format, v...)
+}
+
+func (d *debugLogger) Errorf(format string, v ...interface{}) {
+	log.Printf("ERROR "+format, v...)
 }

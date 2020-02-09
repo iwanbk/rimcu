@@ -2,12 +2,10 @@ package resp3pool
 
 import (
 	"errors"
-	"log"
 	"net"
-	"strconv"
 	"sync"
 
-	"github.com/iwanbk/rimcu/internal/crc"
+	"github.com/iwanbk/rimcu/logger"
 	"github.com/smallnest/resp3"
 )
 
@@ -38,11 +36,10 @@ type Conn struct {
 	// - it's connection is closed, we should invalidates all slots
 	invalidCb InvalidateCbFunc
 
-	mtx sync.Mutex
-	// slots store all slots that is tracked by this connection
-	slots map[uint64]struct{}
-
+	mtx     sync.Mutex
 	runFlag bool
+
+	logger logger.Logger
 }
 
 func newConn(netConn net.Conn, pool *Pool, invalidCb InvalidateCbFunc) *Conn {
@@ -54,7 +51,7 @@ func newConn(netConn net.Conn, pool *Pool, invalidCb InvalidateCbFunc) *Conn {
 		respCh:    make(chan *resp3.Value),
 		stopCh:    make(chan struct{}),
 		invalidCb: invalidCb,
-		slots:     make(map[uint64]struct{}),
+		logger:    pool.logger,
 	}
 }
 
@@ -105,51 +102,6 @@ func (c *Conn) destroy() {
 	c.conn.Close()
 }
 
-func (c *Conn) Setex(key, val string, exp int) error {
-	_, err := c.do("SET", key, val, "EX", strconv.Itoa(exp))
-	return err
-}
-
-// Get value of the given key.
-//
-// It returns ErrNotFound if there is no cache with the given key
-func (c *Conn) Get(key string) (string, error) {
-	// execute redis commands
-	resp, err := c.Do("GET", key)
-	if err != nil {
-		return "", err
-	}
-
-	if resp.Str == "" {
-		// TODO : differentiate between empty string and nil value
-		// ErrNotFound must only be returned on nil value
-		return "", ErrNotFound
-	}
-
-	// track the slots
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
-	c.slots[crc.RedisCrc([]byte(key))] = struct{}{}
-
-	return resp.Str, nil
-}
-
-func (c *Conn) Del(key string) error {
-	// execute redis commands
-	_, err := c.do("DEL", key)
-	if err != nil {
-		return err
-	}
-
-	// remove the slot tracking
-	slot := crc.RedisCrc([]byte(key))
-	c.mtx.Lock()
-	defer c.mtx.Unlock()
-	delete(c.slots, slot)
-
-	return nil
-}
-
 func (c *Conn) Do(cmd, key string, args ...string) (*resp3.Value, error) {
 	cmds := append([]string{cmd, key}, args...)
 	return c.do(cmds...)
@@ -181,7 +133,7 @@ func (c *Conn) run() {
 			// read val
 			resp, _, err := c.rd.ReadValue()
 			if err != nil {
-				log.Printf("failed to receive a message: %v", err)
+				c.logger.Debugf("failed to receive a message: %v", err)
 				continue
 			}
 
@@ -191,7 +143,7 @@ func (c *Conn) run() {
 				c.respCh <- resp
 				continue
 			}
-			log.Printf("[PUSH resp] %v", resp.Type)
+			c.logger.Debugf("[PUSH resp] %v", resp.Type)
 
 			// handle invalidation
 			c.checkHandleInvalidation(resp)
@@ -208,14 +160,10 @@ func (c *Conn) checkHandleInvalidation(resp *resp3.Value) {
 	}
 
 	r := resp.Elems[1]
-	log.Printf("received TRACKING result: %c, %#v", resp.Type, resp.SmartResult())
-	log.Printf("res[1]%c:%v", r.Type, r.Integer)
+	c.logger.Debugf("received TRACKING result: %c, %#v", resp.Type, resp.SmartResult())
+	c.logger.Debugf("res[1]%c:%v", r.Type, r.Integer)
 
 	slot := uint64(r.Integer)
-
-	c.mtx.Lock()
-	delete(c.slots, slot)
-	c.mtx.Unlock()
 
 	c.invalidCb(slot)
 
