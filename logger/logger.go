@@ -1,4 +1,4 @@
-package rimcu
+package logger
 
 import (
 	"log"
@@ -7,6 +7,10 @@ import (
 type Logger interface {
 	Debugf(format string, v ...interface{})
 	Errorf(format string, v ...interface{})
+}
+
+func NewDefault() Logger {
+	return &defaultLogger{}
 }
 
 type defaultLogger struct {
