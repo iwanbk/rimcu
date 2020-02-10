@@ -257,6 +257,91 @@ func TestStringsCache_Del_ValidKey_Propagate(t *testing.T) {
 	}
 }
 
+func TestMset_Basic(t *testing.T) {
+	var (
+		ctx     = context.Background()
+		numKeys = 10
+		keys    []string
+		val     = "xxxxxxxx"
+		values  []string
+	)
+
+	for i := 0; i < numKeys; i++ {
+		keys = append(keys, generateRandomKey())
+	}
+
+	scs, cleanup := createStringsCacheTestClient(t, 2)
+	defer cleanup()
+
+	sc1, sc2 := scs[0], scs[1]
+
+	for _, k := range keys {
+		_, err := sc2.Get(ctx, k, 10)
+		require.Error(t, err)
+	}
+
+	for _, k := range keys {
+		values = append(values, k, val)
+	}
+
+	err := sc1.MSet(ctx, values...)
+	require.NoError(t, err)
+
+	for _, k := range keys {
+		v, err := sc2.Get(ctx, k, 10)
+		require.NoError(t, err)
+		require.Equal(t, val, v)
+	}
+}
+
+func TestMGet_Basic(t *testing.T) {
+	var (
+		ctx     = context.Background()
+		numKeys = 10
+		keys    []string
+		val     = "xxxxxxxx"
+	)
+
+	for i := 0; i < numKeys; i++ {
+		keys = append(keys, generateRandomKey())
+	}
+
+	scs, cleanup := createStringsCacheTestClient(t, 2)
+	defer cleanup()
+
+	sc1, sc2 := scs[0], scs[1]
+
+	_, err := sc2.MGet(ctx, 1000, keys...)
+	require.NoError(t, err)
+
+	for _, k := range keys {
+		err := sc1.Setex(ctx, k, val, 1000)
+		require.NoError(t, err)
+	}
+
+	var (
+		notExistKey         = "NO_EXISTS_KEY"
+		expectedStringValue = StringValue{
+			Val: val,
+			Nil: false,
+		}
+	)
+
+	vals, err := sc2.MGet(ctx, 1000, append(keys, notExistKey)...)
+	require.NoError(t, err)
+
+	for i, v := range vals {
+		if i != len(vals)-1 {
+			require.Equal(t, expectedStringValue, v)
+		} else {
+			require.Equal(t, StringValue{
+				Nil: true,
+				Val: "",
+			}, v)
+		}
+	}
+}
+
 func generateRandomKey() string {
 	return xid.New().String()
 }
