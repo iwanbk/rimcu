@@ -8,6 +8,7 @@ env:
 
 install:
   - go get -v -t ./...
+  - go get -v golang.org/x/lint/golint
   - bash scripts/install_redis_6.sh
   - go get -u github.com/rakyll/gotest
   - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.21.0

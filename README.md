@@ -16,6 +16,8 @@ So you don't need to always ask the Redis server to get your cache data.
 
 ## StringsCache
 
+[![godoc](https://godoc.org/github.com/iwanbk/rimcu?status.svg)](http://godoc.org/github.com/iwanbk/rimcu#StringsCache)
+
 StringsCache is cache for redis [`strings`](https://redis.io/topics/data-types#strings) data type with RESP3 protocol.
 
 It needs Redis server with RESP3 support which currently only available in Redis 6 (unstable)
@@ -37,7 +39,19 @@ improve the connection pool:
 - [ ] idle connection checking
 - [ ] health checking 
 
-## StringsCacheResp2
+## ListCache (RESP2)
+
+[![godoc](https://godoc.org/github.com/iwanbk/rimcu?status.svg)](http://godoc.org/github.com/iwanbk/rimcu/resp2/#ListCache)
+
+ListCache is cache for Redis list data type which uses RESP2 protocol. It is still in very early development phase. See the godoc page for more explanation.
+ 
+Implemented commands:
+- [x]LPOP
+- [x]RPUSH
+- [x]GET (it is Rimcu specific command)
+- [ ]...
+
+## StringsCache (RESP2)
 
 StringsCacheResp2 is cache for redis [`strings`](https://redis.io/topics/data-types#strings) data type with RESP2 protocol, which means it can be used with any Redis versions.
 
@@ -47,7 +61,3 @@ It syncs the data between client using redis pubsub. It uses Lua script to guara
 
 - add option to also publish the data instead of only the key
 - consider to sync using slot instead of key, similar to how RESP3 doing the sync
-
-## ListCacheResp2
-
-ListCacheResp2 is cache for Redis list data type, it is still in very early development phase

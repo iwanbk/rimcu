@@ -3,6 +3,7 @@ package resp2
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"testing"
 	"time"
@@ -319,4 +320,15 @@ func createStringsResp2TestClient(t *testing.T, numCli int) ([]*StringsCache, fu
 
 func generateRandomKey() string {
 	return xid.New().String()
+}
+
+type debugLogger struct {
+}
+
+func (d *debugLogger) Debugf(format string, v ...interface{}) {
+	log.Printf(format, v...)
+}
+
+func (d *debugLogger) Errorf(format string, v ...interface{}) {
+	log.Printf(format, v...)
 }
