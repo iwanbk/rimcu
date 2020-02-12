@@ -9,11 +9,12 @@ import (
 
 	"github.com/gomodule/redigo/redis"
 	lru "github.com/hashicorp/golang-lru"
+	logger "github.com/iwanbk/rimcu/logger"
 	"github.com/rs/xid"
 	"github.com/shamaton/msgpack"
 )
 
-// listCache represents in memory cache of redis lists data type
+// ListCache represents in memory cache of redis lists data type with RESP2 protocol
 //
 // the sync mechanism is using a kind of oplog
 // update list:
@@ -29,7 +30,7 @@ import (
 //		it will be marked as clean when it receives notification of the respective operation
 //	- when in dirty state, all ops of this key will be buffered
 //	- the buffer will be executed when it receives notification of the respective operation
-type listCache struct {
+type ListCache struct {
 	pool     *redis.Pool
 	clientID []byte
 
@@ -41,17 +42,19 @@ type listCache struct {
 	luaRpush *redis.Script //rpush
 	luaLpop  *redis.Script //rpush
 
-	logger Logger
+	logger logger.Logger
 }
 
-type ListCacheResp2Config struct {
-	Logger   Logger
+// ListCacheConfig defines configuration of ListCache type
+type ListCacheConfig struct {
+	Logger   logger.Logger
 	Size     int
 	ClientID []byte
 	opIDGen  opIDGenerator
 }
 
-func newListCacheResp2(pool *redis.Pool, cfg ListCacheResp2Config) (*listCache, error) {
+// NewListCache creates new list cache with RESP2 protocol
+func NewListCache(pool *redis.Pool, cfg ListCacheConfig) (*ListCache, error) {
 	if cfg.Size <= 0 {
 		cfg.Size = 1000
 	}
@@ -59,7 +62,7 @@ func newListCacheResp2(pool *redis.Pool, cfg ListCacheResp2Config) (*listCache, 
 		cfg.ClientID = xid.New().Bytes()
 	}
 	if cfg.Logger == nil {
-		cfg.Logger = &defaultLogger{}
+		cfg.Logger = logger.NewDefault()
 	}
 	if cfg.opIDGen == nil {
 		cfg.opIDGen = &defaultOpIDgen{}
@@ -68,7 +71,7 @@ func newListCacheResp2(pool *redis.Pool, cfg ListCacheResp2Config) (*listCache, 
 	if err != nil {
 		return nil, err
 	}
-	lc := &listCache{
+	lc := &ListCache{
 		cc:       cc,
 		pool:     pool,
 		clientID: cfg.ClientID,
@@ -77,7 +80,8 @@ func newListCacheResp2(pool *redis.Pool, cfg ListCacheResp2Config) (*listCache, 
 		luaRpush: redis.NewScript(1, scriptRpush),
 		luaLpop:  redis.NewScript(1, scriptLpop),
 	}
-	rns := newResp2NotifSubcriber(pool, lc.handleNotifData, lc.handleNotifDisconnect, listChannel)
+	rns := newResp2NotifSubcriber(pool, lc.handleNotifData, lc.handleNotifDisconnect,
+		listChannel, cfg.Logger)
 	return lc, rns.runSubscriber()
 }
 
@@ -85,7 +89,7 @@ func newListCacheResp2(pool *redis.Pool, cfg ListCacheResp2Config) (*listCache, 
 // TODO:
 //  - also do LTRIM
 //  - accept not only one values
-func (lc *listCache) Rpush(ctx context.Context, key, val string) error {
+func (lc *ListCache) Rpush(ctx context.Context, key, val string) error {
 	notif := newListNotif(lc.clientID, lc.opIDGen.Generate(), listRpushCmd, key, val)
 
 	_, err := redis.String(lc.execLua(ctx, lc.luaRpush, notif, key, val))
@@ -96,7 +100,7 @@ func (lc *listCache) Rpush(ctx context.Context, key, val string) error {
 //
 // It gets directly from memory if the key state is not dirty
 // otherwise will get from the server
-func (lc *listCache) Get(ctx context.Context, key string) ([]string, error) {
+func (lc *ListCache) Get(ctx context.Context, key string) ([]string, error) {
 	cv, ok := lc.memGet(key)
 	if ok && !cv.IsDirty() {
 		return cv.list, nil
@@ -120,7 +124,7 @@ func (lc *listCache) Get(ctx context.Context, key string) ([]string, error) {
 // Lpop removes and returns the first element of the list stored at key.
 //
 // Lpop currently executes the command directly to the server.
-func (lc *listCache) Lpop(ctx context.Context, key string) (string, bool, error) {
+func (lc *ListCache) Lpop(ctx context.Context, key string) (string, bool, error) {
 
 	notif := newListNotif(lc.clientID, lc.opIDGen.Generate(), listLpopCmd, key, "")
 
@@ -132,7 +136,7 @@ func (lc *listCache) Lpop(ctx context.Context, key string) (string, bool, error)
 	return val, true, nil
 }
 
-func (lc *listCache) execLua(ctx context.Context, scr *redis.Script, nt *listNotif, key string, args ...interface{}) (interface{}, error) {
+func (lc *ListCache) execLua(ctx context.Context, scr *redis.Script, nt *listNotif, key string, args ...interface{}) (interface{}, error) {
 	notifMsg, err := nt.Encode()
 	if err != nil {
 		return nil, err
@@ -158,7 +162,7 @@ func (lc *listCache) execLua(ctx context.Context, scr *redis.Script, nt *listNot
 	return val, err
 }
 
-func (lc *listCache) getFromServer(ctx context.Context, key string) ([]string, error) {
+func (lc *ListCache) getFromServer(ctx context.Context, key string) ([]string, error) {
 	// get ALL list data from the server
 	conn, err := lc.pool.GetContext(ctx)
 	if err != nil {
@@ -169,7 +173,7 @@ func (lc *listCache) getFromServer(ctx context.Context, key string) ([]string, e
 	return redis.Strings(conn.Do("LRANGE", key, 0, -1))
 }
 
-func (lc *listCache) memGet(key string) (*listCacheVal, bool) {
+func (lc *ListCache) memGet(key string) (*listCacheVal, bool) {
 	entry, ok := lc.cc.Get(key)
 	if !ok {
 		return nil, false
@@ -177,11 +181,11 @@ func (lc *listCache) memGet(key string) (*listCacheVal, bool) {
 	return entry.(*listCacheVal), true
 }
 
-func (lc *listCache) memSet(key string, cv *listCacheVal) {
+func (lc *ListCache) memSet(key string, cv *listCacheVal) {
 	lc.cc.Add(key, cv)
 }
 
-func (lc *listCache) name() string {
+func (lc *ListCache) name() string {
 	return string(lc.clientID)
 }
 
@@ -213,7 +217,7 @@ func decodeListNotif(b []byte) (*listNotif, error) {
 	return &ln, msgpack.Decode(b, &ln)
 }
 
-func (lc *listCache) executeNotifs(cv *listCacheVal, notifs ...*listNotif) {
+func (lc *ListCache) executeNotifs(cv *listCacheVal, notifs ...*listNotif) {
 	for _, nt := range notifs {
 		lc.logger.Debugf("rimcu:[%s]op=%v `%s` to key: %v", lc.name(), string(nt.OpID), nt.Cmd, nt.Key)
 		switch nt.Cmd {
@@ -228,7 +232,7 @@ func (lc *listCache) executeNotifs(cv *listCacheVal, notifs ...*listNotif) {
 }
 
 // handleNotif handle raw notification from the redis
-func (lc *listCache) handleNotifData(data []byte) {
+func (lc *ListCache) handleNotifData(data []byte) {
 	// decode notification
 	nt, err := decodeListNotif(data)
 	if err != nil {
@@ -266,18 +270,18 @@ func (lc *listCache) handleNotifData(data []byte) {
 // check if the notification can clear dirty state of this list of the given client ID
 //
 // TODO: maybe check for the timestampt as well
-func (cv *listCacheVal) canClearDirty(nt *listNotif, clientID []byte) bool {
+func (lcv *listCacheVal) canClearDirty(nt *listNotif, clientID []byte) bool {
 	if !bytes.Equal(clientID, nt.ClientID) {
 		return false
 	}
-	return bytes.Equal(cv.getDirtyID(), nt.OpID)
+	return bytes.Equal(lcv.getDirtyID(), nt.OpID)
 }
 
-func (lc *listCache) handleNotifDisconnect() {
+func (lc *ListCache) handleNotifDisconnect() {
 	lc.logger.Errorf("TODO handleNotifDisconnect")
 }
 
-// listCacheVal represents in memory backing of the listCache
+// listCacheVal represents in memory backing of the ListCache
 type listCacheVal struct {
 	mtx         sync.RWMutex
 	list        []string

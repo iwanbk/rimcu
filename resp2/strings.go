@@ -8,10 +8,12 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/iwanbk/rimcu/internal/inmemcache/keycache"
 	"github.com/iwanbk/rimcu/internal/notif"
+	"github.com/iwanbk/rimcu/logger"
 	"github.com/rs/xid"
 )
 
 var (
+	// ErrNotFound returned when the given key is not exist
 	ErrNotFound = errors.New("not found")
 )
 
@@ -30,7 +32,7 @@ type StringsCache struct {
 	luaSetex *redis.Script //setex command
 	luaDel   *redis.Script // del command
 
-	logger Logger
+	logger logger.Logger
 }
 
 // StringsCacheResp2Config is config for the StringsCache
@@ -39,7 +41,7 @@ type StringsCacheResp2Config struct {
 	CacheSize int
 
 	// Logger for this lib, if nil will use Go log package which only print log on error
-	Logger Logger
+	Logger logger.Logger
 
 	// ID of the cache client, leave it to nil will generate unique value
 	ClientID []byte
@@ -52,9 +54,8 @@ func NewStringsCacheResp2(cfg StringsCacheResp2Config, pool *redis.Pool) (*Strin
 		return nil, err
 	}
 
-	logger := cfg.Logger
-	if logger == nil {
-		logger = &defaultLogger{}
+	if cfg.Logger == nil {
+		cfg.Logger = logger.NewDefault()
 	}
 
 	if cfg.ClientID == nil {
@@ -64,12 +65,13 @@ func NewStringsCacheResp2(cfg StringsCacheResp2Config, pool *redis.Pool) (*Strin
 	sc := &StringsCache{
 		name:     cfg.ClientID,
 		pool:     pool,
-		logger:   logger,
+		logger:   cfg.Logger,
 		cc:       cc,
 		luaSetex: redis.NewScript(1, scriptSetex),
 		luaDel:   redis.NewScript(1, scriptDel),
 	}
-	rns := newResp2NotifSubcriber(pool, sc.handleNotif, sc.handleNotifDisconnect, stringsnotifChannel)
+	rns := newResp2NotifSubcriber(pool, sc.handleNotif, sc.handleNotifDisconnect,
+		stringsnotifChannel, cfg.Logger)
 	return sc, rns.runSubscriber()
 }
 

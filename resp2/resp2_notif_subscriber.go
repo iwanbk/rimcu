@@ -2,22 +2,24 @@ package resp2
 
 import (
 	"github.com/gomodule/redigo/redis"
+	logger "github.com/iwanbk/rimcu/logger"
 )
 
 type resp2NotifSubcriber struct {
 	pool              *redis.Pool
 	finishedCh        chan struct{}
-	logger            Logger
+	logger            logger.Logger
 	disconnectHandler func()
 	notifHandler      func([]byte)
 	channel           string
 }
 
-func newResp2NotifSubcriber(pool *redis.Pool, notifHandler func([]byte), disconnectHandler func(), channel string) *resp2NotifSubcriber {
+func newResp2NotifSubcriber(pool *redis.Pool, notifHandler func([]byte), disconnectHandler func(),
+	channel string, logger logger.Logger) *resp2NotifSubcriber {
 	return &resp2NotifSubcriber{
 		pool:              pool,
 		finishedCh:        make(chan struct{}),
-		logger:            &debugLogger{},
+		logger:            logger,
 		notifHandler:      notifHandler,
 		disconnectHandler: disconnectHandler,
 		channel:           channel,

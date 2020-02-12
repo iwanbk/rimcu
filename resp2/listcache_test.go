@@ -242,9 +242,9 @@ func TestListCache_PopPropagate(t *testing.T) {
 	}
 
 }
-func createListCacheResp2TestClient(t *testing.T, numCli int) ([]*listCache, func()) {
+func createListCacheResp2TestClient(t *testing.T, numCli int) ([]*ListCache, func()) {
 	var (
-		caches     []*listCache
+		caches     []*ListCache
 		serverAddr = os.Getenv("TEST_REDIS_ADDR")
 		server     *miniredis.Miniredis
 		err        error
@@ -266,7 +266,7 @@ func createListCacheResp2TestClient(t *testing.T, numCli int) ([]*listCache, fun
 				return redis.Dial("tcp", serverAddr)
 			},
 		}
-		cli, err := newListCacheResp2(pool, ListCacheResp2Config{
+		cli, err := NewListCache(pool, ListCacheConfig{
 			Logger:   &debugLogger{},
 			ClientID: []byte(fmt.Sprintf("client_%d", i+1)),
 			opIDGen:  &testOpIDGen{},
