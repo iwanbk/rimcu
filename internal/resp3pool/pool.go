@@ -118,7 +118,12 @@ func (p *Pool) putConnBack(conn *Conn) {
 	p.mtx.Lock()
 	p.conns = append(p.conns, conn)
 	p.mtx.Unlock()
+	p.releaseConn()
+}
+
+func (p *Pool) releaseConn() {
 	<-p.maxConnsCh
+
 }
 
 func (p *Pool) Close() {

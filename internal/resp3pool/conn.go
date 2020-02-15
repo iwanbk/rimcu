@@ -1,9 +1,11 @@
 package resp3pool
 
 import (
+	"context"
 	"errors"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/iwanbk/rimcu/logger"
 	"github.com/smallnest/resp3"
@@ -67,14 +69,17 @@ func (conn *Conn) start() error {
 
 	conn.run() // run in background
 
-	_, err := conn.do("hello", "3")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := conn.do(ctx, "hello", "3")
 	if err != nil {
 		conn.Close()
 		return err
 	}
 	// TODO : check result value
 
-	_, err = conn.do("CLIENT", "TRACKING", "ON")
+	_, err = conn.do(ctx, "CLIENT", "TRACKING", "ON")
 	if err != nil {
 		conn.Close()
 		return err
@@ -85,9 +90,15 @@ func (conn *Conn) start() error {
 }
 
 // Close puts the connection back to the connection pool,
-// and can still be reused later
+// and can still be reused later.
 func (c *Conn) Close() {
 	c.pool.putConnBack(c)
+}
+
+// close the connection and kill itself
+func (c *Conn) closeExit() {
+	c.pool.releaseConn()
+	c.destroy()
 }
 
 // destroy this connection make it invalid to be used
@@ -104,18 +115,25 @@ func (c *Conn) destroy() {
 
 }
 
-func (c *Conn) Do(cmd string, args ...string) (*resp3.Value, error) {
+func (c *Conn) Do(ctx context.Context, cmd string, args ...string) (*resp3.Value, error) {
 	cmds := append([]string{cmd}, args...)
-	return c.do(cmds...)
+	return c.do(ctx, cmds...)
 }
 
-func (c *Conn) do(args ...string) (*resp3.Value, error) {
+func (c *Conn) do(ctx context.Context, args ...string) (*resp3.Value, error) {
 	if err := c.w.WriteCommand(args...); err != nil {
 		return nil, err
 	}
 
-	val := <-c.respCh // TODO: add some timeout mechanism
-	return val, nil
+	select {
+	case val := <-c.respCh:
+		return val, nil
+	case <-ctx.Done():
+		// if it failed, something might went wrong.
+		// it is simpler to close this connection
+		c.closeExit()
+		return nil, ctx.Err()
+	}
 }
 
 func (c *Conn) run() {
