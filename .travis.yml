@@ -14,7 +14,7 @@ install:
   - curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.21.0
 
 script:
-  - /home/travis/gopath/src/github.com/iwanbk/rimcu/redis-unstable/src/redis-server&
+  - /home/travis/gopath/src/github.com/iwanbk/rimcu/redis/src/redis-server&
   - go build ./...
   - make lint
   - gotest -race -coverprofile=coverage.txt -covermode=atomic ./...

@@ -63,7 +63,7 @@ func TestConn(t *testing.T) {
 }
 
 func (c *Conn) setex(key, val string, exp int) error {
-	_, err := c.do("SET", key, val, "EX", strconv.Itoa(exp))
+	_, err := c.do(context.Background(), "SET", key, val, "EX", strconv.Itoa(exp))
 	return err
 }
 
@@ -72,7 +72,7 @@ func (c *Conn) setex(key, val string, exp int) error {
 // It returns ErrNotFound if there is no cache with the given key
 func (c *Conn) get(key string) (string, error) {
 	// execute redis commands
-	resp, err := c.Do("GET", key)
+	resp, err := c.Do(context.Background(), "GET", key)
 	if err != nil {
 		return "", err
 	}

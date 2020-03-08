@@ -206,7 +206,7 @@ func (sc *StringsCache) _do(ctx context.Context, cmd string, args ...string) (*r
 		return nil, err
 	}
 
-	resp, err := conn.Do(cmd, args...)
+	resp, err := conn.Do(ctx, cmd, args...)
 
 	conn.Close()
 
