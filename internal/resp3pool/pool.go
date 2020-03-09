@@ -50,7 +50,7 @@ func NewPool(cfg PoolConfig) *Pool {
 	}
 }
 
-type InvalidateCbFunc func(uint64)
+type InvalidateCbFunc func(string)
 
 // get connections from the pool or create a new one.
 //
