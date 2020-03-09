@@ -180,11 +180,14 @@ func (c *Conn) checkHandleInvalidation(resp *resp3.Value) {
 	}
 
 	r := resp.Elems[1]
-	c.logger.Debugf("received TRACKING result: %c, %#v", resp.Type, resp.SmartResult())
-	c.logger.Debugf("res[1]%c:%v", r.Type, r.Integer)
+	c.logger.Debugf("str:%v", r.Elems[0].SmartResult().(string))
 
-	slot := uint64(r.Integer)
+	key, ok := r.Elems[0].SmartResult().(string)
+	if !ok {
+		c.logger.Errorf("push notif doesn't have expected type: string")
+		return
+	}
 
-	c.invalidCb(slot)
+	c.invalidCb(key)
 
 }

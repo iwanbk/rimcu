@@ -19,13 +19,13 @@ func TestConn(t *testing.T) {
 	)
 	pool1 := NewPool(PoolConfig{
 		ServerAddr: "localhost:6379",
-		InvalidateCb: func(slot uint64) {
-			log.Printf("invalidate callback %v", slot)
+		InvalidateCb: func(key string) {
+			log.Printf("invalidate callback %v", key)
 		},
 	})
 	pool2 := NewPool(PoolConfig{
 		ServerAddr: "localhost:6379",
-		InvalidateCb: func(slot uint64) {
+		InvalidateCb: func(key string) {
 			c2InvalidationCh <- struct{}{}
 		},
 	})

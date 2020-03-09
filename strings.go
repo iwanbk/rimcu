@@ -19,9 +19,6 @@ type StringsCache struct {
 	// in memory cache
 	cc *ccache.Cache
 
-	// slots maps the redis slot into the cache key.
-	slots *slot
-
 	logger logger.Logger
 }
 
@@ -49,12 +46,12 @@ func NewStringsCache(cfg StringsCacheConfig) *StringsCache {
 
 	sc := &StringsCache{
 		cc:     ccache.New(ccache.Configure().MaxSize(1000)),
-		slots:  newSlot(),
 		logger: cfg.Logger,
 	}
 	poolCfg := resp3pool.PoolConfig{
 		ServerAddr:   cfg.ServerAddr,
 		InvalidateCb: sc.invalidate,
+		Logger:       sc.logger,
 	}
 	sc.pool = resp3pool.NewPool(poolCfg)
 	return sc
@@ -236,14 +233,10 @@ func (sc *StringsCache) isNullString(resp *resp3.Value) bool {
 func (sc *StringsCache) memSet(key, val string, exp time.Duration) {
 	// add in cache
 	sc.cc.Set(key, val, exp)
-
-	// add this key in the slots
-	sc.slots.addKey(key)
 }
 
 func (sc *StringsCache) memDel(key string) {
 	sc.cc.Delete(key)
-	sc.slots.removeKey(key)
 }
 
 func (sc *StringsCache) memGet(key string) (string, bool) {
@@ -260,10 +253,6 @@ func (sc *StringsCache) memGet(key string) (string, bool) {
 }
 
 // invalidate the given slot
-func (sc *StringsCache) invalidate(slot uint64) {
-	se := sc.slots.removeSlot(slot)
-	// delete all the keys from the memory cache
-	for key := range se {
-		sc.cc.Delete(key)
-	}
+func (sc *StringsCache) invalidate(key string) {
+	sc.memDel(key)
 }
