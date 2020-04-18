@@ -272,7 +272,7 @@ func ExampleString() {
 	defer c.Close()
 
 	c.Do("SET", "hello", "world")
-	s, err := redis.String(c.Do("GET", "hello"))
+	s, err := redis.String(c.Do("GET", "hello")) //nolint
 	fmt.Printf("%#v\n", s)
 	// Output:
 	// "world"

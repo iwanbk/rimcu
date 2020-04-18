@@ -412,9 +412,9 @@ func compileStructSpec(t reflect.Type, depth map[string]int, index []int, ss *st
 }
 
 var (
-	structSpecMutex  sync.RWMutex
-	structSpecCache  = make(map[reflect.Type]*structSpec)
-	defaultFieldSpec = &fieldSpec{}
+	structSpecMutex sync.RWMutex
+	structSpecCache = make(map[reflect.Type]*structSpec)
+	//defaultFieldSpec = &fieldSpec{}
 )
 
 func structSpecForType(t reflect.Type) *structSpec {

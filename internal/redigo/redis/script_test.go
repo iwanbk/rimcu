@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/iwanbk/rimcu/internal/redigo/redis"
+	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -78,6 +79,7 @@ func TestScript(t *testing.T) {
 	}
 
 	v, err = c.Receive()
+	require.NoError(t, err)
 	if !reflect.DeepEqual(v, reply) {
 		t.Errorf("s.SendHash(c, ..); c.Receive() = %v, want %v", v, reply)
 	}
@@ -93,6 +95,7 @@ func TestScript(t *testing.T) {
 	}
 
 	v, err = c.Receive()
+	require.NoError(t, err)
 	if !reflect.DeepEqual(v, reply) {
 		t.Errorf("s.Send(c, ..); c.Receive() = %v, want %v", v, reply)
 	}

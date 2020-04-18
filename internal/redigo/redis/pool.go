@@ -40,7 +40,7 @@ var nowFunc = time.Now // for testing
 var ErrPoolExhausted = errors.New("redigo: connection pool exhausted")
 
 var (
-	errPoolClosed = errors.New("redigo: connection pool closed")
+	//errPoolClosed = errors.New("redigo: connection pool closed")
 	errConnClosed = errors.New("redigo: connection closed")
 )
 
@@ -187,7 +187,7 @@ func NewPool(newFn func() (Conn, error), maxIdle int) *Pool {
 // getting an underlying connection, then the connection Err, Do, Send, Flush
 // and Receive methods return that error.
 func (p *Pool) Get() Conn {
-	pc, err := p.get(nil, false)
+	pc, err := p.get(nil, false) //nolint
 	if err != nil {
 		return errorConn{err}
 	}
@@ -617,7 +617,6 @@ func (l *idleList) pushFront(pc *poolConn) {
 	}
 	l.front = pc
 	l.count++
-	return
 }
 
 func (l *idleList) popFront() {
