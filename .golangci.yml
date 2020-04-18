@@ -4,7 +4,5 @@ linters:
   disable:
     - errcheck
   enable:
-    - gosec
-    - gocritic
     - misspell
     - unconvert

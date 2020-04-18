@@ -115,7 +115,7 @@ func TestScanConversion(t *testing.T) {
 	for _, tt := range scanConversionTests {
 		values := []interface{}{tt.src}
 		dest := reflect.New(reflect.TypeOf(tt.dest))
-		values, err := redis.Scan(values, dest.Interface())
+		_, err := redis.Scan(values, dest.Interface())
 		if err != nil {
 			t.Errorf("Scan(%v) returned error %v", tt, err)
 			continue
@@ -144,7 +144,7 @@ func TestScanConversionError(t *testing.T) {
 	for _, tt := range scanConversionErrorTests {
 		values := []interface{}{tt.src}
 		dest := reflect.New(reflect.TypeOf(tt.dest))
-		values, err := redis.Scan(values, dest.Interface())
+		_, err := redis.Scan(values, dest.Interface())
 		if err == nil {
 			t.Errorf("Scan(%v) did not return error", tt)
 		}
