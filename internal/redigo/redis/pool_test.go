@@ -23,7 +23,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gomodule/redigo/redis"
+	"github.com/iwanbk/rimcu/internal/redigo/redis"
 )
 
 const (
