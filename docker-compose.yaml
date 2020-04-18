@@ -1,7 +1,6 @@
 version: '3.2'
 services:
   redis:
-    image: redis:6.0-rc2-alpine
+    image: redis:6.0-rc3-alpine
     ports:
       - 6379:6379
-  
