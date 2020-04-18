@@ -161,6 +161,8 @@ type Pool struct {
 	// the pool does not close connections based on age.
 	MaxConnLifetime time.Duration
 
+	DialCb func(ctx context.Context, conn Conn) error
+
 	chInitialized uint32 // set to 1 when field ch is initialized
 
 	mu           sync.Mutex    // mu protects the following fields
@@ -185,7 +187,7 @@ func NewPool(newFn func() (Conn, error), maxIdle int) *Pool {
 // getting an underlying connection, then the connection Err, Do, Send, Flush
 // and Receive methods return that error.
 func (p *Pool) Get() Conn {
-	pc, err := p.get(nil)
+	pc, err := p.get(nil, false)
 	if err != nil {
 		return errorConn{err}
 	}
@@ -201,7 +203,17 @@ func (p *Pool) Get() Conn {
 // If the function completes without error, then the application must close the
 // returned connection.
 func (p *Pool) GetContext(ctx context.Context) (Conn, error) {
-	pc, err := p.get(ctx)
+	return p.getContext(ctx, false)
+}
+
+// GetContextWithCallback gets a connection using the provided context and
+// executed the configured callback if the connection is newly created connection.
+func (p *Pool) GetContextWithCallback(ctx context.Context) (Conn, error) {
+	return p.getContext(ctx, true)
+}
+
+func (p *Pool) getContext(ctx context.Context, isDialCb bool) (Conn, error) {
+	pc, err := p.get(ctx, isDialCb)
 	if err != nil {
 		return errorConn{err}, err
 	}
@@ -301,7 +313,7 @@ func (p *Pool) lazyInit() {
 
 // get prunes stale connections and returns a connection from the idle list or
 // creates a new connection.
-func (p *Pool) get(ctx context.Context) (*poolConn, error) {
+func (p *Pool) get(ctx context.Context, isDialCb bool) (*poolConn, error) {
 
 	// Handle limit for p.Wait == true.
 	var waited time.Duration
@@ -377,7 +389,7 @@ func (p *Pool) get(ctx context.Context) (*poolConn, error) {
 
 	p.active++
 	p.mu.Unlock()
-	c, err := p.dial(ctx)
+	c, err := p.dial(ctx, isDialCb)
 	if err != nil {
 		c = nil
 		p.mu.Lock()
@@ -390,14 +402,26 @@ func (p *Pool) get(ctx context.Context) (*poolConn, error) {
 	return &poolConn{c: c, created: nowFunc()}, err
 }
 
-func (p *Pool) dial(ctx context.Context) (Conn, error) {
-	if p.DialContext != nil {
-		return p.DialContext(ctx)
+func (p *Pool) dial(ctx context.Context, isDialCb bool) (Conn, error) {
+	var (
+		conn Conn
+		err  error
+	)
+
+	switch {
+	case p.DialContext != nil:
+		conn, err = p.DialContext(ctx)
+	case p.Dial != nil:
+		conn, err = p.Dial()
+	default:
+		return nil, errors.New("redigo: must pass Dial or DialContext to pool")
 	}
-	if p.Dial != nil {
-		return p.Dial()
+	if err != nil || !isDialCb {
+		return conn, err
 	}
-	return nil, errors.New("redigo: must pass Dial or DialContext to pool")
+
+	// TODO: what if the callback failed, should we close it?
+	return conn, p.DialCb(ctx, conn)
 }
 
 func (p *Pool) put(pc *poolConn, forceClose bool) error {
