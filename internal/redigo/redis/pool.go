@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	_ ConnWithTimeout = (*activeConn)(nil)
+	_ ConnWithTimeout = (*ActiveConn)(nil)
 	_ ConnWithTimeout = (*errorConn)(nil)
 )
 
@@ -191,7 +191,7 @@ func (p *Pool) Get() Conn {
 	if err != nil {
 		return errorConn{err}
 	}
-	return &activeConn{p: p, pc: pc}
+	return &ActiveConn{p: p, pc: pc}
 }
 
 // GetContext gets a connection using the provided context.
@@ -202,22 +202,22 @@ func (p *Pool) Get() Conn {
 //
 // If the function completes without error, then the application must close the
 // returned connection.
-func (p *Pool) GetContext(ctx context.Context) (Conn, error) {
+func (p *Pool) GetContext(ctx context.Context) (*ActiveConn, error) {
 	return p.getContext(ctx, false)
 }
 
 // GetContextWithCallback gets a connection using the provided context and
 // executed the configured callback if the connection is newly created connection.
-func (p *Pool) GetContextWithCallback(ctx context.Context) (Conn, error) {
+func (p *Pool) GetContextWithCallback(ctx context.Context) (*ActiveConn, error) {
 	return p.getContext(ctx, true)
 }
 
-func (p *Pool) getContext(ctx context.Context, isDialCb bool) (Conn, error) {
+func (p *Pool) getContext(ctx context.Context, isDialCb bool) (*ActiveConn, error) {
 	pc, err := p.get(ctx, isDialCb)
 	if err != nil {
-		return errorConn{err}, err
+		return nil, err
 	}
-	return &activeConn{p: p, pc: pc}, nil
+	return &ActiveConn{p: p, pc: pc}, nil
 }
 
 // PoolStats contains pool statistics.
@@ -404,24 +404,36 @@ func (p *Pool) get(ctx context.Context, isDialCb bool) (*poolConn, error) {
 
 func (p *Pool) dial(ctx context.Context, isDialCb bool) (Conn, error) {
 	var (
-		conn Conn
-		err  error
+		redisConn Conn
+		err       error
 	)
 
 	switch {
 	case p.DialContext != nil:
-		conn, err = p.DialContext(ctx)
+		redisConn, err = p.DialContext(ctx)
 	case p.Dial != nil:
-		conn, err = p.Dial()
+		redisConn, err = p.Dial()
 	default:
 		return nil, errors.New("redigo: must pass Dial or DialContext to pool")
 	}
 	if err != nil || !isDialCb {
-		return conn, err
+		return redisConn, err
 	}
 
+	// if *conn, get client ID
+	rawConn, ok := redisConn.(*conn)
+	if !ok {
+		return redisConn, nil
+	}
+
+	clientID, err := Int64(redisConn.Do("CLIENT", "ID"))
+	if err != nil {
+		return nil, err
+	}
+	rawConn.clientID = clientID
+
 	// TODO: what if the callback failed, should we close it?
-	return conn, p.DialCb(ctx, conn)
+	return redisConn, p.DialCb(ctx, redisConn)
 }
 
 func (p *Pool) put(pc *poolConn, forceClose bool) error {
@@ -451,7 +463,7 @@ func (p *Pool) put(pc *poolConn, forceClose bool) error {
 	return nil
 }
 
-type activeConn struct {
+type ActiveConn struct {
 	p     *Pool
 	pc    *poolConn
 	state int
@@ -474,7 +486,7 @@ func initSentinel() {
 	}
 }
 
-func (ac *activeConn) Close() error {
+func (ac *ActiveConn) Close() error {
 	pc := ac.pc
 	if pc == nil {
 		return nil
@@ -512,7 +524,7 @@ func (ac *activeConn) Close() error {
 	return nil
 }
 
-func (ac *activeConn) Err() error {
+func (ac *ActiveConn) Err() error {
 	pc := ac.pc
 	if pc == nil {
 		return errConnClosed
@@ -520,7 +532,7 @@ func (ac *activeConn) Err() error {
 	return pc.c.Err()
 }
 
-func (ac *activeConn) Do(commandName string, args ...interface{}) (reply interface{}, err error) {
+func (ac *ActiveConn) Do(commandName string, args ...interface{}) (reply interface{}, err error) {
 	pc := ac.pc
 	if pc == nil {
 		return nil, errConnClosed
@@ -530,7 +542,7 @@ func (ac *activeConn) Do(commandName string, args ...interface{}) (reply interfa
 	return pc.c.Do(commandName, args...)
 }
 
-func (ac *activeConn) DoWithTimeout(timeout time.Duration, commandName string, args ...interface{}) (reply interface{}, err error) {
+func (ac *ActiveConn) DoWithTimeout(timeout time.Duration, commandName string, args ...interface{}) (reply interface{}, err error) {
 	pc := ac.pc
 	if pc == nil {
 		return nil, errConnClosed
@@ -544,7 +556,7 @@ func (ac *activeConn) DoWithTimeout(timeout time.Duration, commandName string, a
 	return cwt.DoWithTimeout(timeout, commandName, args...)
 }
 
-func (ac *activeConn) Send(commandName string, args ...interface{}) error {
+func (ac *ActiveConn) Send(commandName string, args ...interface{}) error {
 	pc := ac.pc
 	if pc == nil {
 		return errConnClosed
@@ -554,7 +566,7 @@ func (ac *activeConn) Send(commandName string, args ...interface{}) error {
 	return pc.c.Send(commandName, args...)
 }
 
-func (ac *activeConn) Flush() error {
+func (ac *ActiveConn) Flush() error {
 	pc := ac.pc
 	if pc == nil {
 		return errConnClosed
@@ -562,7 +574,7 @@ func (ac *activeConn) Flush() error {
 	return pc.c.Flush()
 }
 
-func (ac *activeConn) Receive() (reply interface{}, err error) {
+func (ac *ActiveConn) Receive() (reply interface{}, err error) {
 	pc := ac.pc
 	if pc == nil {
 		return nil, errConnClosed
@@ -570,7 +582,7 @@ func (ac *activeConn) Receive() (reply interface{}, err error) {
 	return pc.c.Receive()
 }
 
-func (ac *activeConn) ReceiveWithTimeout(timeout time.Duration) (reply interface{}, err error) {
+func (ac *ActiveConn) ReceiveWithTimeout(timeout time.Duration) (reply interface{}, err error) {
 	pc := ac.pc
 	if pc == nil {
 		return nil, errConnClosed
@@ -580,6 +592,10 @@ func (ac *activeConn) ReceiveWithTimeout(timeout time.Duration) (reply interface
 		return nil, errTimeoutNotSupported
 	}
 	return cwt.ReceiveWithTimeout(timeout)
+}
+
+func (ac *ActiveConn) ClientID() int64 {
+	return ac.pc.ClientID()
 }
 
 type errorConn struct{ err error }
@@ -605,6 +621,14 @@ type poolConn struct {
 	t          time.Time
 	created    time.Time
 	next, prev *poolConn
+}
+
+func (pc *poolConn) ClientID() int64 {
+	rawConn, ok := pc.c.(*conn)
+	if !ok {
+		return 0
+	}
+	return rawConn.ClientID()
 }
 
 func (l *idleList) pushFront(pc *poolConn) {

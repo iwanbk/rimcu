@@ -35,6 +35,8 @@ var (
 
 // conn is the low-level implementation of Conn
 type conn struct {
+	clientID int64
+
 	// Shared
 	mu      sync.Mutex
 	pending int
@@ -439,6 +441,10 @@ func (c *conn) writeArg(arg interface{}, argumentTypeOK bool) (err error) {
 		fmt.Fprint(&buf, arg)
 		return c.writeBytes(buf.Bytes())
 	}
+}
+
+func (c *conn) ClientID() int64 {
+	return c.clientID
 }
 
 type protocolError string
