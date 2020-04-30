@@ -29,6 +29,8 @@ type StringsCache struct {
 
 // StringsCacheConfig is config for the StringsCache
 type StringsCacheConfig struct {
+	ServerAddr string
+
 	// inmem cache max size
 	CacheSize int
 
@@ -40,7 +42,7 @@ type StringsCacheConfig struct {
 }
 
 // NewStringsCache creates new StringsCache object
-func NewStringsCache(cfg StringsCacheConfig, pool *redis.Pool) (*StringsCache, error) {
+func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 
 	if cfg.Logger == nil {
 		cfg.Logger = logger.NewDefault()
@@ -52,10 +54,18 @@ func NewStringsCache(cfg StringsCacheConfig, pool *redis.Pool) (*StringsCache, e
 
 	sc := &StringsCache{
 		name:   cfg.ClientID,
-		pool:   pool,
 		logger: cfg.Logger,
 		cc:     newCache(cfg.CacheSize),
 	}
+
+	pool := &redis.Pool{
+		Dial: func() (redis.Conn, error) {
+			return redis.Dial("tcp", cfg.ServerAddr, redis.DialCloseCb(sc.redisConnCloseCb))
+		},
+		MaxActive: 100,
+		MaxIdle:   100,
+	}
+	sc.pool = pool
 
 	sc.pool.DialCb = sc.dialCb
 
@@ -81,14 +91,14 @@ func (sc *StringsCache) Setex(ctx context.Context, key, val string, expSecond in
 	if err != nil {
 		return err
 	}
-	//defer conn.Close()
+	defer conn.Close()
 
 	_, err = redis.String(conn.Do("SET", key, val, "EX", expSecond))
 	if err != nil {
 		return err
 	}
 
-	sc.cc.Set(key, val, toRemoveConst, expSecond)
+	sc.cc.Set(key, val, conn.ClientID(), expSecond)
 	return nil
 }
 
@@ -111,6 +121,8 @@ func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (str
 	}
 	defer conn.Close()
 
+	//sc.logger.Debugf("CLIENT ID=%v", conn.ClientID())
+
 	val, err = redis.String(conn.Do("GET", key))
 	if err != nil {
 		sc.logger.Debugf("[%s] GET failed: %v", string(sc.name), err)
@@ -121,12 +133,12 @@ func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (str
 	}
 
 	// set to in-mem cache
-	sc.cc.Set(key, val, toRemoveConst, expSecond)
+	sc.cc.Set(key, val, conn.ClientID(), expSecond)
 
 	return val, nil
 }
 
-func (sc *StringsCache) getConn(ctx context.Context) (redis.Conn, error) {
+func (sc *StringsCache) getConn(ctx context.Context) (*redis.ActiveConn, error) {
 	return sc.pool.GetContextWithCallback(ctx)
 	// TODO: what if the pool dial callback failed? should we close this conn
 }
@@ -142,6 +154,10 @@ func (sc *StringsCache) dialCb(ctx context.Context, conn redis.Conn) error {
 	}
 
 	return err
+}
+
+func (sc *StringsCache) redisConnCloseCb(clientID int64) {
+
 }
 
 // handle notif subscriber disconnected event

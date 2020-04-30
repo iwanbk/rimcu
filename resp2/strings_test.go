@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis"
-	"github.com/iwanbk/rimcu/internal/redigo/redis"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 )
@@ -81,19 +80,12 @@ func createStringsResp2TestClient(t *testing.T, numCli int) ([]*StringsCache, fu
 
 	// set pool
 	for i := 0; i < numCli; i++ {
-
-		pool := &redis.Pool{
-			Dial: func() (redis.Conn, error) {
-				return redis.Dial("tcp", serverAddr)
-			},
-			MaxActive: 100,
-			MaxIdle:   100,
-		}
 		cli, err := NewStringsCache(StringsCacheConfig{
-			CacheSize: 10000,
-			Logger:    &debugLogger{},
-			ClientID:  []byte(fmt.Sprintf("client_%d", i+1)),
-		}, pool)
+			ServerAddr: serverAddr,
+			CacheSize:  10000,
+			Logger:     &debugLogger{},
+			ClientID:   []byte(fmt.Sprintf("client_%d", i+1)),
+		})
 		require.NoError(t, err)
 		caches = append(caches, cli)
 	}

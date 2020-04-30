@@ -35,7 +35,6 @@ var (
 
 // conn is the low-level implementation of Conn
 type conn struct {
-	clientID int64
 
 	// Shared
 	mu      sync.Mutex
@@ -57,6 +56,12 @@ type conn struct {
 
 	// Scratch space for formatting integers and floats.
 	numScratch [40]byte
+
+	// redis clientID
+	clientID int64
+
+	// callback to execute when this connection being closed
+	closeCb func(clientID int64)
 }
 
 // DialTimeout acts like Dial but takes timeouts for establishing the
@@ -86,6 +91,7 @@ type dialOptions struct {
 	useTLS       bool
 	skipVerify   bool
 	tlsConfig    *tls.Config
+	closeCb      func(clientID int64)
 }
 
 // DialReadTimeout specifies the timeout for reading a single command reply.
@@ -99,6 +105,12 @@ func DialReadTimeout(d time.Duration) DialOption {
 func DialWriteTimeout(d time.Duration) DialOption {
 	return DialOption{func(do *dialOptions) {
 		do.writeTimeout = d
+	}}
+}
+
+func DialCloseCb(closeCb func(clientID int64)) DialOption {
+	return DialOption{func(do *dialOptions) {
+		do.closeCb = closeCb
 	}}
 }
 
@@ -226,6 +238,7 @@ func Dial(network, address string, options ...DialOption) (Conn, error) {
 		br:           bufio.NewReader(netConn),
 		readTimeout:  do.readTimeout,
 		writeTimeout: do.writeTimeout,
+		closeCb:      do.closeCb,
 	}
 
 	if do.password != "" {
@@ -329,6 +342,9 @@ func (c *conn) Close() error {
 	if c.err == nil {
 		c.err = errors.New("redigo: closed")
 		err = c.conn.Close()
+		if c.closeCb != nil {
+			c.closeCb(c.clientID)
+		}
 	}
 	c.mu.Unlock()
 	return err
