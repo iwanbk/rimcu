@@ -41,6 +41,7 @@ func (ckm *connKeyMap) del(clientID int64, key string) {
 
 }
 
+// clean cleans conn<->key map of the client
 func (ckm *connKeyMap) clean(clientID int64) {
 	ckm.mtx.Lock()
 	defer ckm.mtx.Unlock()

@@ -35,7 +35,6 @@ func (c *cache) evictedKeyHandler(key, val interface{}) {
 	cVal, ok := val.(cacheVal)
 	if !ok {
 		panic("]evictedKeyHandler] unpexpected type of cache value")
-		return
 	}
 	c.ckm.del(cVal.clientID, cVal.val)
 }
@@ -78,6 +77,16 @@ func (c *cache) Del(key string) {
 
 	c.valCache.Remove(key)
 	c.ckm.del(cVal.clientID, key)
+}
+
+func (c *cache) CleanCacheForConn(clientID int64) {
+	// clean all keys in cache
+	keys := c.ckm.keys(clientID)
+	for key := range keys {
+		c.Del(key)
+	}
+	// clean conn<->key mapping
+	c.ckm.clean(clientID)
 }
 
 func (c *cache) Clear() {

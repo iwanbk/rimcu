@@ -18,11 +18,53 @@ var (
 	syncTimeWait  = 2 * time.Second
 )
 
+// Test Set initiate in memory cache
+func TestStringsCache_Set_InitInMem(t *testing.T) {
+	clis, cleanup := createStringsCacheClient(t, 1)
+	defer cleanup()
+
+	var (
+		cli1      = clis[0]
+		key1      = generateRandomKey()
+		val1      = "val1"
+		expSecond = 100
+		ctx       = context.Background()
+	)
+
+	// Test Init
+	{
+
+	}
+
+	// make sure initial condition
+	{
+		val, ok := cli1.getMemCache(key1)
+		require.False(t, ok)
+		require.Empty(t, val)
+	}
+
+	// do action
+	{
+		// - set from client1
+		err := cli1.Setex(ctx, key1, val1, expSecond)
+		require.NoError(t, err)
+
+	}
+
+	// check expected condition
+	{
+		val, ok := cli1.getMemCache(key1)
+		require.True(t, ok)
+		require.Equal(t, val1, val)
+	}
+
+}
+
 // Test that Set will invalidate memcache in other nodes
-func TestStringsCacheResp2_Set_Invalidate(t *testing.T) {
+func TestStringsCache_Set_Invalidate(t *testing.T) {
 	ctx := context.Background()
 
-	scs, cleanup := createStringsResp2TestClient(t, 2)
+	scs, cleanup := createStringsCacheClient(t, 2)
 	defer cleanup()
 
 	var (
@@ -69,7 +111,105 @@ func TestStringsCacheResp2_Set_Invalidate(t *testing.T) {
 	}
 }
 
-func createStringsResp2TestClient(t *testing.T, numCli int) ([]*StringsCache, func()) {
+// Get valid key must initiate inmem cache
+func TestStringsCache_Get_Valid_InitInMem(t *testing.T) {
+	ctx := context.Background()
+
+	scs, cleanup := createStringsCacheClient(t, 3)
+	defer cleanup()
+
+	var (
+		sc1, sc2, sc3 = scs[0], scs[1], scs[2]
+		key1          = generateRandomKey()
+		val1          = "val_1"
+	)
+
+	// Test initialization: set the key in redis
+	{
+		// set
+		err := sc1.Setex(ctx, key1, val1, testExpSecond)
+		require.NoError(t, err)
+
+		// make sure the value is as expected
+		val, err := sc1.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+		require.Equal(t, val1, val)
+	}
+
+	// make sure initial condition: key not exist in memcache
+	{
+		_, ok := sc2.getMemCache(key1)
+		require.False(t, ok)
+
+		_, ok = sc3.getMemCache(key1)
+		require.False(t, ok)
+	}
+
+	// do the action : Get
+	{
+		// get
+		val, err := sc2.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+		require.Equal(t, val1, val)
+
+		val, err = sc3.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+		require.Equal(t, val1, val)
+	}
+
+	// check expected condition
+	// key1 exists in memcache
+	{
+		// check
+		_, ok := sc2.getMemCache(key1)
+		require.True(t, ok)
+
+		_, ok = sc3.getMemCache(key1)
+		require.True(t, ok)
+	}
+
+}
+
+// Get invalid key must:
+// -  not initiate in mem cache
+// - got error
+func TestStringsCache_Get_Invalid_NotInitInMem(t *testing.T) {
+	ctx := context.Background()
+
+	scs, cleanup := createStringsCacheClient(t, 1)
+	defer cleanup()
+
+	var (
+		sc1  = scs[0]
+		key1 = generateRandomKey()
+	)
+
+	// make sure initial condition, key1 must not exists in memcache
+	{
+		_, ok := sc1.getMemCache(key1)
+		require.False(t, ok)
+	}
+
+	// do the action : get key that not exists
+	{
+		// get
+		_, err := sc1.Get(ctx, key1, testExpSecond)
+		require.Error(t, err)
+	}
+
+	// check expected condition
+	// key1 not exists in memcache
+	{
+
+		// check
+		_, ok := sc1.getMemCache(key1)
+		require.False(t, ok)
+
+	}
+
+}
+
+func createStringsCacheClient(t *testing.T, numCli int) ([]*StringsCache, func()) {
 	var (
 		caches     []*StringsCache
 		serverAddr = os.Getenv("TEST_REDIS_ADDR")
