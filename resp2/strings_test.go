@@ -15,7 +15,7 @@ import (
 
 var (
 	testExpSecond = 1000
-	syncTimeWait  = 2 * time.Second
+	syncTimeWait  = 1 * time.Second
 )
 
 // Test Set initiate in memory cache
@@ -207,6 +207,65 @@ func TestStringsCache_Get_Invalid_NotInitInMem(t *testing.T) {
 
 	}
 
+}
+
+// Test Del : deleting valid key must propagate to other nodes
+func TestStringsCache_Del_ValidKey_Propagate(t *testing.T) {
+	ctx := context.Background()
+
+	scs, cleanup := createStringsCacheClient(t, 3)
+	defer cleanup()
+
+	var (
+		sc1, sc2, sc3 = scs[0], scs[1], scs[2]
+		key1          = generateRandomKey()
+		val1          = "val_1"
+	)
+
+	{ // Test initialization, get the value to activate listening
+		// Set
+		err := sc1.Setex(ctx, key1, val1, testExpSecond)
+		require.NoError(t, err)
+
+		// Get to activate listening
+		_, err = sc2.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+
+		_, err = sc3.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+	}
+
+	// make sure initial condition, key1 must exists in memcache
+	{
+		_, ok := sc2.getMemCache(key1)
+		require.True(t, ok)
+
+		_, ok = sc3.getMemCache(key1)
+		require.True(t, ok)
+	}
+
+	// do the action : Del
+	{
+		// set
+		err := sc1.Del(ctx, key1)
+		require.NoError(t, err)
+	}
+
+	time.Sleep(syncTimeWait)
+
+	// check expected condition
+	{
+
+		_, ok := sc1.getMemCache(key1)
+		require.False(t, ok)
+
+		// check
+		_, ok = sc2.getMemCache(key1)
+		require.False(t, ok)
+
+		_, ok = sc3.getMemCache(key1)
+		require.False(t, ok)
+	}
 }
 
 func createStringsCacheClient(t *testing.T, numCli int) ([]*StringsCache, func()) {
