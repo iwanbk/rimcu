@@ -108,7 +108,7 @@ func (sc *StringsCache) Setex(ctx context.Context, key, val string, expSecond in
 // and set the expiration to the given expSecond
 func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (string, error) {
 	// try to get from in memory cache
-	val, ok := sc.cc.Get(key)
+	val, ok := sc.getMemCache(key)
 	if ok {
 		sc.logger.Debugf("[%s] GET: already in memcache", string(sc.name))
 		return val, nil
@@ -138,6 +138,10 @@ func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (str
 	return val, nil
 }
 
+func (sc *StringsCache) getMemCache(key string) (string, bool) {
+	return sc.cc.Get(key)
+}
+
 func (sc *StringsCache) getConn(ctx context.Context) (*redis.ActiveConn, error) {
 	return sc.pool.GetContextWithCallback(ctx)
 	// TODO: what if the pool dial callback failed? should we close this conn
@@ -156,8 +160,12 @@ func (sc *StringsCache) dialCb(ctx context.Context, conn redis.Conn) error {
 	return err
 }
 
+// redisConnCloseCb is callback to be called when the underlying redis connection
+// is being closed.
+//
+// it deletes all keys belong to the given client
 func (sc *StringsCache) redisConnCloseCb(clientID int64) {
-
+	sc.cc.CleanCacheForConn(clientID)
 }
 
 // handle notif subscriber disconnected event
