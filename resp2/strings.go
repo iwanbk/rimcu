@@ -138,6 +138,21 @@ func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (str
 	return val, nil
 }
 
+// Del deletes the key in both memory cache and redis server
+func (sc *StringsCache) Del(ctx context.Context, key string) error {
+	sc.cc.Del(key)
+
+	// get from redis
+	conn, err := sc.getConn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	_, err = conn.Do("DEL", key)
+	return err
+}
+
 func (sc *StringsCache) getMemCache(key string) (string, bool) {
 	return sc.cc.Get(key)
 }
