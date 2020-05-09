@@ -2,7 +2,6 @@ package resp2
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"testing"
@@ -82,8 +81,8 @@ func TestStringsCache_Set_Invalidate(t *testing.T) {
 		require.NoError(t, err)
 
 		// Get to activate listening
-		_, err = sc2.Get(ctx, key1, testExpSecond)
-		require.NoError(t, err)
+		res := sc2.Get(ctx, key1, testExpSecond)
+		require.NoError(t, res.Err())
 
 	}
 
@@ -131,7 +130,7 @@ func TestStringsCache_Get_Valid_InitInMem(t *testing.T) {
 		require.NoError(t, err)
 
 		// make sure the value is as expected
-		val, err := sc1.Get(ctx, key1, testExpSecond)
+		val, err := sc1.Get(ctx, key1, testExpSecond).String()
 		require.NoError(t, err)
 		require.Equal(t, val1, val)
 	}
@@ -148,11 +147,11 @@ func TestStringsCache_Get_Valid_InitInMem(t *testing.T) {
 	// do the action : Get
 	{
 		// get
-		val, err := sc2.Get(ctx, key1, testExpSecond)
+		val, err := sc2.Get(ctx, key1, testExpSecond).String()
 		require.NoError(t, err)
 		require.Equal(t, val1, val)
 
-		val, err = sc3.Get(ctx, key1, testExpSecond)
+		val, err = sc3.Get(ctx, key1, testExpSecond).String()
 		require.NoError(t, err)
 		require.Equal(t, val1, val)
 	}
@@ -193,7 +192,7 @@ func TestStringsCache_Get_Invalid_NotInitInMem(t *testing.T) {
 	// do the action : get key that not exists
 	{
 		// get
-		_, err := sc1.Get(ctx, key1, testExpSecond)
+		_, err := sc1.Get(ctx, key1, testExpSecond).String()
 		require.Error(t, err)
 	}
 
@@ -228,10 +227,10 @@ func TestStringsCache_Del_ValidKey_Propagate(t *testing.T) {
 		require.NoError(t, err)
 
 		// Get to activate listening
-		_, err = sc2.Get(ctx, key1, testExpSecond)
+		_, err = sc2.Get(ctx, key1, testExpSecond).String()
 		require.NoError(t, err)
 
-		_, err = sc3.Get(ctx, key1, testExpSecond)
+		_, err = sc3.Get(ctx, key1, testExpSecond).String()
 		require.NoError(t, err)
 	}
 
@@ -283,7 +282,6 @@ func createStringsCacheClient(t *testing.T, numCli int) ([]*StringsCache, func()
 			ServerAddr: serverAddr,
 			CacheSize:  10000,
 			Logger:     &debugLogger{},
-			ClientID:   []byte(fmt.Sprintf("client_%d", i+1)),
 		})
 		require.NoError(t, err)
 		caches = append(caches, cli)
