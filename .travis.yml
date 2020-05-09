@@ -7,7 +7,6 @@ env:
   - TEST_REDIS_ADDR="localhost:6379"
 
 install:
-  - go get -v -t ./...
   - go get -v golang.org/x/lint/golint
   - bash scripts/install_redis_6.sh
   - go get -u github.com/rakyll/gotest
