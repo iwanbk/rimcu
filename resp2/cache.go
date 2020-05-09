@@ -6,13 +6,15 @@ import (
 	"github.com/bluele/gcache"
 )
 
+// cache is in-memory cache of the resp2 rimcu
 type cache struct {
 	valCache gcache.Cache
 	ckm      *connKeyMap
 }
 
+// cacheVal represents a cache value
 type cacheVal struct {
-	val      string
+	val      interface{}
 	clientID int64 // TODO: move this info to `ckm`
 }
 
@@ -30,17 +32,18 @@ func newCache(size int) *cache {
 	return c
 }
 
+// TODO add test for this
 func (c *cache) evictedKeyHandler(key, val interface{}) {
 	// remove record in the client -> key mapping
 	cVal, ok := val.(cacheVal)
 	if !ok {
 		panic("]evictedKeyHandler] unpexpected type of cache value")
 	}
-	c.ckm.del(cVal.clientID, cVal.val)
+	c.ckm.del(cVal.clientID, key.(string))
 }
 
 // Set cache
-func (c *cache) Set(key, val string, clientID int64, expSecond int) {
+func (c *cache) Set(key string, val interface{}, clientID int64, expSecond int) {
 	c.ckm.add(clientID, key)
 	c.valCache.SetWithExpire(key, cacheVal{
 		val:      val,
@@ -49,15 +52,15 @@ func (c *cache) Set(key, val string, clientID int64, expSecond int) {
 }
 
 // Get cache
-func (c *cache) Get(key string) (string, bool) {
+func (c *cache) Get(key string) (interface{}, bool) {
 	val, err := c.valCache.Get(key)
 	if err != nil {
-		return "", false
+		return nil, false
 	}
 
 	cVal, ok := val.(cacheVal)
 	if !ok {
-		return "", false
+		return nil, false
 	}
 
 	return cVal.val, true

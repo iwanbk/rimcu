@@ -6,7 +6,6 @@ import (
 
 	"github.com/iwanbk/rimcu/internal/redigo/redis"
 	"github.com/iwanbk/rimcu/logger"
-	"github.com/rs/xid"
 )
 
 var (
@@ -21,10 +20,6 @@ type StringsCache struct {
 	cc              *cache
 	notifSubscriber *notifSubcriber
 	logger          logger.Logger
-
-	// Auto generated unique client name, needed as synchronization identifier
-	// TODO generate name of the client using `CLIENT ID` redis command
-	name []byte
 }
 
 // StringsCacheConfig is config for the StringsCache
@@ -36,9 +31,6 @@ type StringsCacheConfig struct {
 
 	// Logger for this lib, if nil will use Go log package which only print log on error
 	Logger logger.Logger
-
-	// ID of the cache client, leave it to nil will generate unique value
-	ClientID []byte
 }
 
 // NewStringsCache creates new StringsCache object
@@ -48,12 +40,7 @@ func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 		cfg.Logger = logger.NewDefault()
 	}
 
-	if cfg.ClientID == nil {
-		cfg.ClientID = xid.New().Bytes()
-	}
-
 	sc := &StringsCache{
-		name:   cfg.ClientID,
 		logger: cfg.Logger,
 		cc:     newCache(cfg.CacheSize),
 	}
@@ -85,7 +72,7 @@ func (sc *StringsCache) Close() error {
 // Calling this func will
 // - invalidate inmem cache of other nodes
 // - initialize in mem cache of this node
-func (sc *StringsCache) Setex(ctx context.Context, key, val string, expSecond int) error {
+func (sc *StringsCache) Setex(ctx context.Context, key string, val interface{}, expSecond int) error {
 	// get conn
 	conn, err := sc.getConn(ctx)
 	if err != nil {
@@ -106,18 +93,18 @@ func (sc *StringsCache) Setex(ctx context.Context, key, val string, expSecond in
 //
 // If the value not exists in the memory cache, it will try to get from the redis server
 // and set the expiration to the given expSecond
-func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (string, error) {
+func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) *StringResult {
 	// try to get from in memory cache
 	val, ok := sc.getMemCache(key)
 	if ok {
-		sc.logger.Debugf("[%s] GET: already in memcache", string(sc.name))
-		return val, nil
+		sc.logger.Debugf("GET: already in memcache")
+		return newStringResult(val, nil)
 	}
 
 	// get from redis
 	conn, err := sc.getConn(ctx)
 	if err != nil {
-		return "", err
+		return newStringResult(nil, err)
 	}
 	defer conn.Close()
 
@@ -125,17 +112,17 @@ func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (str
 
 	val, err = redis.String(conn.Do("GET", key))
 	if err != nil {
-		sc.logger.Debugf("[%s] GET failed: %v", string(sc.name), err)
+		sc.logger.Debugf("GET failed: %v", err)
 		if err == redis.ErrNil {
 			err = ErrNotFound
 		}
-		return "", err
+		return newStringResult(val, err)
 	}
 
 	// set to in-mem cache
 	sc.cc.Set(key, val, conn.ClientID(), expSecond)
 
-	return val, nil
+	return newStringResult(val, nil)
 }
 
 // Del deletes the key in both memory cache and redis server
@@ -153,7 +140,7 @@ func (sc *StringsCache) Del(ctx context.Context, key string) error {
 	return err
 }
 
-func (sc *StringsCache) getMemCache(key string) (string, bool) {
+func (sc *StringsCache) getMemCache(key string) (interface{}, bool) {
 	return sc.cc.Get(key)
 }
 
@@ -163,10 +150,7 @@ func (sc *StringsCache) getConn(ctx context.Context) (*redis.ActiveConn, error) 
 }
 
 func (sc *StringsCache) dialCb(ctx context.Context, conn redis.Conn) error {
-	//sc.logger.Debugf("executing dial CB")
-	trackClientID := sc.notifSubscriber.clientID
-	//sc.logger.Debugf("redirect conn to client ID:%v", trackClientID)
-	_, err := conn.Do("CLIENT", "TRACKING", "on", "REDIRECT", trackClientID)
+	_, err := conn.Do("CLIENT", "TRACKING", "on", "REDIRECT", sc.notifSubscriber.clientID)
 
 	if err != nil {
 		sc.logger.Errorf("dial CB failed: %v", err)
