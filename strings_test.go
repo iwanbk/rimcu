@@ -263,7 +263,7 @@ func TestMset_Basic(t *testing.T) {
 		numKeys = 10
 		keys    []string
 		val     = "xxxxxxxx"
-		values  []string
+		values  []interface{}
 	)
 
 	for i := 0; i < numKeys; i++ {

@@ -2,13 +2,14 @@ package rimcu
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
+	"github.com/iwanbk/resp3"
 	"github.com/iwanbk/rimcu/internal/resp3pool"
 	"github.com/iwanbk/rimcu/logger"
 	"github.com/karlseguin/ccache"
-	"github.com/smallnest/resp3"
 )
 
 // Cache represents in memory cache which sync the cache
@@ -66,7 +67,7 @@ type StringValue struct {
 // Setex sets the key to hold the string value with the given expiration second.
 //
 // Calling this func will invalidate inmem cache of this key's slot in other nodes.
-func (c *Cache) Setex(ctx context.Context, key, val string, exp int) error {
+func (c *Cache) Setex(ctx context.Context, key string, val interface{}, exp int) error {
 	return c.write(ctx, cmdSet, key, val, "EX", strconv.Itoa(exp))
 }
 
@@ -107,7 +108,7 @@ func (c *Cache) Append(ctx context.Context, key, val string) error {
 // The format of the values:
 //
 // - key1, val1, key2, val2, ....
-func (c *Cache) MSet(ctx context.Context, values ...string) error {
+func (c *Cache) MSet(ctx context.Context, values ...interface{}) error {
 	lenVal := len(values)
 	//check argument
 	if lenVal == 0 || (lenVal%2 != 0) {
@@ -122,7 +123,7 @@ func (c *Cache) MSet(ctx context.Context, values ...string) error {
 	// del inmemcache
 	for i, val := range values {
 		if i%2 == 0 {
-			c.memDel(val)
+			c.memDel(fmt.Sprintf("%s", val))
 		}
 	}
 
@@ -135,8 +136,8 @@ func (c *Cache) MSet(ctx context.Context, values ...string) error {
 // if the key exists, it will cached in the memory cache with exp seconds expiration time
 func (c *Cache) MGet(ctx context.Context, exp int, keys ...string) ([]StringValue, error) {
 	var (
-		getKeys    []string // keys to get from the server
-		getIndexes []int    // index of the key to get from the server
+		getKeys    []interface{} // keys to get from the server
+		getIndexes []int         // index of the key to get from the server
 		results    = make([]StringValue, len(keys))
 		tsExp      = time.Duration(exp) * time.Second
 	)
@@ -168,13 +169,13 @@ func (c *Cache) MGet(ctx context.Context, exp int, keys ...string) ([]StringValu
 		}
 		results[getIndexes[i]] = strVal
 		if !strVal.Nil {
-			c.memSet(getKeys[i], strVal.Val, tsExp)
+			c.memSet(fmt.Sprintf("%s", (getKeys[i])), strVal.Val, tsExp)
 		}
 	}
 	return results, nil
 }
 
-func (c *Cache) write(ctx context.Context, cmd, key string, args ...string) error {
+func (c *Cache) write(ctx context.Context, cmd, key string, args ...interface{}) error {
 	_, err := c.do(ctx, cmd, key, args...)
 	if err != nil {
 		return err
@@ -192,25 +193,24 @@ func (c *Cache) Close() error {
 }
 
 // TODO: don't expose resp3.Value to this package
-func (c *Cache) do(ctx context.Context, cmd, key string, args ...string) (*resp3.Value, error) {
-	return c._do(ctx, cmd, append([]string{key}, args...)...)
+func (c *Cache) do(ctx context.Context, cmd, key interface{}, args ...interface{}) (*resp3.Value, error) {
+	return c._do(ctx, cmd, append([]interface{}{key}, args...)...)
 }
 
-func (c *Cache) _do(ctx context.Context, cmd string, args ...string) (*resp3.Value, error) {
+func (c *Cache) _do(ctx context.Context, cmd interface{}, args ...interface{}) (*resp3.Value, error) {
 
 	conn, err := c.pool.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
+	defer conn.Close()
 
 	resp, err := conn.Do(ctx, cmd, args...)
-
-	conn.Close()
 
 	return resp, err
 }
 
-func (c *Cache) getString(ctx context.Context, cmd, key string, args ...string) (string, error) {
+func (c *Cache) getString(ctx context.Context, cmd, key interface{}, args ...interface{}) (string, error) {
 	resp, err := c.do(ctx, cmd, key, args...)
 	if err != nil {
 		return "", err

@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/iwanbk/resp3"
 	"github.com/iwanbk/rimcu/logger"
-	"github.com/smallnest/resp3"
 )
 
 var (
@@ -115,13 +115,13 @@ func (c *Conn) destroy() {
 
 }
 
-func (c *Conn) Do(ctx context.Context, cmd string, args ...string) (*resp3.Value, error) {
-	cmds := append([]string{cmd}, args...)
+func (c *Conn) Do(ctx context.Context, cmd interface{}, args ...interface{}) (*resp3.Value, error) {
+	cmds := append([]interface{}{cmd}, args...)
 	return c.do(ctx, cmds...)
 }
 
-func (c *Conn) do(ctx context.Context, args ...string) (*resp3.Value, error) {
-	if err := c.w.WriteCommand(args...); err != nil {
+func (c *Conn) do(ctx context.Context, args ...interface{}) (*resp3.Value, error) {
+	if err := c.w.SendCommands(args...); err != nil {
 		return nil, err
 	}
 
