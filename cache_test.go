@@ -263,7 +263,7 @@ func TestMset_Basic(t *testing.T) {
 		numKeys = 10
 		keys    []string
 		val     = "xxxxxxxx"
-		values  []string
+		values  []interface{}
 	)
 
 	for i := 0; i < numKeys; i++ {
@@ -346,11 +346,11 @@ func generateRandomKey() string {
 	return xid.New().String()
 }
 
-func createStringsCacheTestClient(t *testing.T, numCli int) ([]*StringsCache, func()) {
-	var caches []*StringsCache
+func createStringsCacheTestClient(t *testing.T, numCli int) ([]*Cache, func()) {
+	var caches []*Cache
 
 	for i := 0; i < numCli; i++ {
-		sc := NewStringsCache(StringsCacheConfig{
+		sc := New(Config{
 			ServerAddr: testRedis6ServerAddr,
 			Logger:     &debugLogger{},
 		})

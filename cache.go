@@ -2,28 +2,29 @@ package rimcu
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"time"
 
+	"github.com/iwanbk/resp3"
 	"github.com/iwanbk/rimcu/internal/resp3pool"
 	"github.com/iwanbk/rimcu/logger"
 	"github.com/karlseguin/ccache"
-	"github.com/smallnest/resp3"
 )
 
-// StringsCache represents in memory strings cache which sync the cache
+// Cache represents in memory cache which sync the cache
 // with other nodes using Redis RESP3 protocol.
-type StringsCache struct {
+type Cache struct {
 	pool *resp3pool.Pool
 
 	// in memory cache
-	cc *ccache.Cache
+	memcache *ccache.Cache
 
 	logger logger.Logger
 }
 
-// StringsCacheConfig represents config of StringsCache
-type StringsCacheConfig struct {
+// Config represents config of Cache
+type Config struct {
 	// redis server address
 	ServerAddr string
 
@@ -35,8 +36,8 @@ type StringsCacheConfig struct {
 	Logger logger.Logger
 }
 
-// NewStringsCache create strings cache with redis RESP3 protocol
-func NewStringsCache(cfg StringsCacheConfig) *StringsCache {
+// New create strings cache with redis RESP3 protocol
+func New(cfg Config) *Cache {
 	if cfg.CacheSize == 0 {
 		cfg.CacheSize = 100000
 	}
@@ -44,9 +45,9 @@ func NewStringsCache(cfg StringsCacheConfig) *StringsCache {
 		cfg.Logger = logger.NewDefault()
 	}
 
-	sc := &StringsCache{
-		cc:     ccache.New(ccache.Configure().MaxSize(1000)),
-		logger: cfg.Logger,
+	sc := &Cache{
+		memcache: ccache.New(ccache.Configure().MaxSize(1000)),
+		logger:   cfg.Logger,
 	}
 	poolCfg := resp3pool.PoolConfig{
 		ServerAddr:   cfg.ServerAddr,
@@ -66,40 +67,40 @@ type StringValue struct {
 // Setex sets the key to hold the string value with the given expiration second.
 //
 // Calling this func will invalidate inmem cache of this key's slot in other nodes.
-func (sc *StringsCache) Setex(ctx context.Context, key, val string, exp int) error {
-	return sc.write(ctx, cmdSet, key, val, "EX", strconv.Itoa(exp))
+func (c *Cache) Setex(ctx context.Context, key string, val interface{}, exp int) error {
+	return c.write(ctx, cmdSet, key, val, "EX", strconv.Itoa(exp))
 }
 
 // Get gets the value of key.
 //
 // It gets from the redis server only if the value not exists in memory cache,
 // it then put the value from server in the in memcache with the given expiration
-func (sc *StringsCache) Get(ctx context.Context, key string, exp int) (string, error) {
+func (c *Cache) Get(ctx context.Context, key string, exp int) (string, error) {
 	// get from mem, if exists
-	val, ok := sc.memGet(key)
+	val, ok := c.memGet(key)
 	if ok {
 		return val, nil
 	}
 
-	val, err := sc.getString(ctx, cmdGet, key)
+	val, err := c.getString(ctx, cmdGet, key)
 	if err != nil {
 		return "", err
 	}
 
 	// add to in mem cache
-	sc.memSet(key, val, time.Duration(exp)*time.Second)
+	c.memSet(key, val, time.Duration(exp)*time.Second)
 
 	return val, nil
 }
 
 // Del deletes the key in local and remote
-func (sc *StringsCache) Del(ctx context.Context, key string) error {
-	return sc.write(ctx, cmdDel, key)
+func (c *Cache) Del(ctx context.Context, key string) error {
+	return c.write(ctx, cmdDel, key)
 }
 
 // Append value to the end of the key
-func (sc *StringsCache) Append(ctx context.Context, key, val string) error {
-	return sc.write(ctx, cmdAppend, key, val)
+func (c *Cache) Append(ctx context.Context, key, val string) error {
+	return c.write(ctx, cmdAppend, key, val)
 }
 
 // MSet set multiple key values at once.
@@ -107,14 +108,14 @@ func (sc *StringsCache) Append(ctx context.Context, key, val string) error {
 // The format of the values:
 //
 // - key1, val1, key2, val2, ....
-func (sc *StringsCache) MSet(ctx context.Context, values ...string) error {
+func (c *Cache) MSet(ctx context.Context, values ...interface{}) error {
 	lenVal := len(values)
 	//check argument
 	if lenVal == 0 || (lenVal%2 != 0) {
 		return ErrInvalidArgs
 	}
 
-	_, err := sc._do(ctx, cmdMSet, values...)
+	_, err := c._do(ctx, cmdMSet, values...)
 	if err != nil {
 		return err
 	}
@@ -122,7 +123,7 @@ func (sc *StringsCache) MSet(ctx context.Context, values ...string) error {
 	// del inmemcache
 	for i, val := range values {
 		if i%2 == 0 {
-			sc.memDel(val)
+			c.memDel(fmt.Sprintf("%s", val))
 		}
 	}
 
@@ -133,10 +134,10 @@ func (sc *StringsCache) MSet(ctx context.Context, values ...string) error {
 // MGet get values of multiple keys at once.
 //
 // if the key exists, it will cached in the memory cache with exp seconds expiration time
-func (sc *StringsCache) MGet(ctx context.Context, exp int, keys ...string) ([]StringValue, error) {
+func (c *Cache) MGet(ctx context.Context, exp int, keys ...string) ([]StringValue, error) {
 	var (
-		getKeys    []string // keys to get from the server
-		getIndexes []int    // index of the key to get from the server
+		getKeys    []interface{} // keys to get from the server
+		getIndexes []int         // index of the key to get from the server
 		results    = make([]StringValue, len(keys))
 		tsExp      = time.Duration(exp) * time.Second
 	)
@@ -144,7 +145,7 @@ func (sc *StringsCache) MGet(ctx context.Context, exp int, keys ...string) ([]St
 	// pick only keys that not exist in the cache
 	for i, key := range keys {
 		// check in mem
-		val, ok := sc.memGet(key)
+		val, ok := c.memGet(key)
 		if ok {
 			results[i] = StringValue{
 				Nil: false,
@@ -156,96 +157,95 @@ func (sc *StringsCache) MGet(ctx context.Context, exp int, keys ...string) ([]St
 		getIndexes = append(getIndexes, i)
 	}
 
-	resp, err := sc._do(ctx, cmdMGet, getKeys...)
+	resp, err := c._do(ctx, cmdMGet, getKeys...)
 	if err != nil {
 		return nil, err
 	}
 
 	for i, elem := range resp.Elems {
 		strVal := StringValue{
-			Nil: sc.isNullString(elem),
+			Nil: c.isNullString(elem),
 			Val: elem.Str,
 		}
 		results[getIndexes[i]] = strVal
 		if !strVal.Nil {
-			sc.memSet(getKeys[i], strVal.Val, tsExp)
+			c.memSet(fmt.Sprintf("%s", (getKeys[i])), strVal.Val, tsExp)
 		}
 	}
 	return results, nil
 }
 
-func (sc *StringsCache) write(ctx context.Context, cmd, key string, args ...string) error {
-	_, err := sc.do(ctx, cmd, key, args...)
+func (c *Cache) write(ctx context.Context, cmd, key string, args ...interface{}) error {
+	_, err := c.do(ctx, cmd, key, args...)
 	if err != nil {
 		return err
 	}
 
 	// delete from in mem cache
-	sc.memDel(key)
+	c.memDel(key)
 	return nil
 }
 
 // Close the strings cache and release it's all resources
-func (sc *StringsCache) Close() error {
-	sc.pool.Close()
+func (c *Cache) Close() error {
+	c.pool.Close()
 	return nil
 }
 
 // TODO: don't expose resp3.Value to this package
-func (sc *StringsCache) do(ctx context.Context, cmd, key string, args ...string) (*resp3.Value, error) {
-	return sc._do(ctx, cmd, append([]string{key}, args...)...)
+func (c *Cache) do(ctx context.Context, cmd, key interface{}, args ...interface{}) (*resp3.Value, error) {
+	return c._do(ctx, cmd, append([]interface{}{key}, args...)...)
 }
 
-func (sc *StringsCache) _do(ctx context.Context, cmd string, args ...string) (*resp3.Value, error) {
+func (c *Cache) _do(ctx context.Context, cmd interface{}, args ...interface{}) (*resp3.Value, error) {
 
-	conn, err := sc.pool.Get(ctx)
+	conn, err := c.pool.Get(ctx)
 	if err != nil {
 		return nil, err
 	}
+	defer conn.Close()
 
 	resp, err := conn.Do(ctx, cmd, args...)
-
-	conn.Close()
 
 	return resp, err
 }
 
-func (sc *StringsCache) getString(ctx context.Context, cmd, key string, args ...string) (string, error) {
-	resp, err := sc.do(ctx, cmd, key, args...)
+func (c *Cache) getString(ctx context.Context, cmd, key interface{}, args ...interface{}) (string, error) {
+	resp, err := c.do(ctx, cmd, key, args...)
 	if err != nil {
 		return "", err
 	}
 
-	if sc.isNullString(resp) {
+	if c.isNullString(resp) {
 		return "", ErrNotFound
 	}
 
 	return resp.Str, nil
 }
 
-func (sc *StringsCache) isNullString(resp *resp3.Value) bool {
+func (c *Cache) isNullString(resp *resp3.Value) bool {
 	return resp.Type == '_'
 }
 
 // memSet sets the value of the given key.
 //
 // it also add the key to the slots map
-func (sc *StringsCache) memSet(key, val string, exp time.Duration) {
+func (c *Cache) memSet(key, val string, exp time.Duration) {
 	// add in cache
-	sc.cc.Set(key, val, exp)
+	c.memcache.Set(key, val, exp)
 }
 
-func (sc *StringsCache) memDel(key string) {
-	sc.cc.Delete(key)
+func (c *Cache) memDel(key string) {
+	c.memcache.Delete(key)
 }
 
-func (sc *StringsCache) memGet(key string) (string, bool) {
-	item := sc.cc.Get(key)
+func (c *Cache) memGet(key string) (string, bool) {
+	item := c.memcache.Get(key)
 	if item == nil {
 		return "", false
 	}
 	if item.Expired() {
-		sc.cc.Delete(key)
+		c.memcache.Delete(key)
 		return "", false
 	}
 
@@ -253,6 +253,6 @@ func (sc *StringsCache) memGet(key string) (string, bool) {
 }
 
 // invalidate the given slot
-func (sc *StringsCache) invalidate(key string) {
-	sc.memDel(key)
+func (c *Cache) invalidate(key string) {
+	c.memDel(key)
 }

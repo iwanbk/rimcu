@@ -7,6 +7,7 @@ require (
 	github.com/alicebob/miniredis v2.5.0+incompatible
 	github.com/bluele/gcache v0.0.0-20190518031135-bc40bd653833
 	github.com/gomodule/redigo v2.0.0+incompatible // indirect
+	github.com/iwanbk/resp3 v0.0.0-20200704064956-fff5b78e9612
 	github.com/karlseguin/ccache v2.0.3+incompatible
 	github.com/karlseguin/expect v1.0.7 // indirect
 	github.com/rs/xid v1.2.1
