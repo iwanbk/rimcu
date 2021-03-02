@@ -270,7 +270,7 @@ func TestStringsCache_Del_ValidKey_Propagate(t *testing.T) {
 func createStringsCacheClient(t *testing.T, numCli int) ([]*StringsCache, func()) {
 	var (
 		caches     []*StringsCache
-		serverAddr = os.Getenv("TEST_REDIS_ADDR")
+		serverAddr = os.Getenv("TEST_REDIS_ADDRESS")
 		server     *miniredis.Miniredis
 	)
 

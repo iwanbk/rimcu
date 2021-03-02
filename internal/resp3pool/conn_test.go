@@ -3,6 +3,7 @@ package resp3pool
 import (
 	"context"
 	"log"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -16,15 +17,19 @@ func TestConn(t *testing.T) {
 		c2InvalidationCh = make(chan struct{})
 		ctx              = context.Background()
 		exp              = 1000
+		redisAddr        = "localhost:6379"
 	)
+	if envAddr := os.Getenv("TEST_REDIS_ADDRESS"); envAddr != "" {
+		redisAddr = envAddr
+	}
 	pool1 := NewPool(PoolConfig{
-		ServerAddr: "localhost:6379",
+		ServerAddr: redisAddr,
 		InvalidateCb: func(key string) {
 			log.Printf("invalidate callback %v", key)
 		},
 	})
 	pool2 := NewPool(PoolConfig{
-		ServerAddr: "localhost:6379",
+		ServerAddr: redisAddr,
 		InvalidateCb: func(key string) {
 			c2InvalidationCh <- struct{}{}
 		},
