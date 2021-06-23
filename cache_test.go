@@ -3,6 +3,7 @@ package rimcu
 import (
 	"context"
 	"log"
+	"os"
 	"testing"
 	"time"
 
@@ -347,11 +348,17 @@ func generateRandomKey() string {
 }
 
 func createStringsCacheTestClient(t *testing.T, numCli int) ([]*Cache, func()) {
-	var caches []*Cache
+	var (
+		caches []*Cache
+		redisAddr = testRedis6ServerAddr
+	)
 
+	if addr := os.Getenv("TEST_REDIS_ADDRESS"); addr != "" {
+		redisAddr = addr
+	}
 	for i := 0; i < numCli; i++ {
 		sc := New(Config{
-			ServerAddr: testRedis6ServerAddr,
+			ServerAddr: redisAddr,
 			Logger:     &debugLogger{},
 		})
 		caches = append(caches, sc)

@@ -4,6 +4,7 @@
 [![codecov](https://codecov.io/gh/iwanbk/rimcu/branch/master/graph/badge.svg)](https://codecov.io/gh/iwanbk/rimcu)
 [![godoc](https://godoc.org/github.com/iwanbk/rimcu?status.svg)](http://godoc.org/github.com/iwanbk/rimcu)
 [![Maintainability](https://api.codeclimate.com/v1/badges/edbfa2013d2a8d2b74ce/maintainability)](https://codeclimate.com/github/iwanbk/rimcu/maintainability)
+[![Test and Linter](https://github.com/iwanbk/rimcu/actions/workflows/test_lint.yml/badge.svg)](https://github.com/iwanbk/rimcu/actions/workflows/test_lint.yml)
 
 Rimcu is Go library for Redis server-assisted client side caching.
 In other words, it is a combination of Redis cient library and in memory cache library.
