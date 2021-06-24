@@ -14,7 +14,7 @@ jobs:
           TEST_REDIS_ADDRESS: redis:${{ job.services.redis.ports[6379] }}
     services:
       redis:
-        image: redis:6.0-rc4-alpine
+        image: redis:6.2.2
         ports:
           - 6379:6379
         # Set health checks to wait until redis has started
