@@ -28,6 +28,9 @@ type Config struct {
 	// redis server address
 	ServerAddr string
 
+	// Optional password
+	Password string
+
 	// size of the  in memory cache
 	// Default is 100K
 	CacheSize int
@@ -51,6 +54,7 @@ func New(cfg Config) *Cache {
 	}
 	poolCfg := resp3pool.PoolConfig{
 		ServerAddr:   cfg.ServerAddr,
+		Password:     cfg.Password,
 		InvalidateCb: sc.invalidate,
 		Logger:       sc.logger,
 	}

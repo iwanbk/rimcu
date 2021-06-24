@@ -2,6 +2,7 @@ package resp3pool
 
 import (
 	"context"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -14,6 +15,7 @@ import (
 // It is currently very simple untested pool
 type Pool struct {
 	serverAddr   string
+	password     string
 	invalidateCb InvalidateCbFunc
 
 	mtx   sync.Mutex
@@ -29,6 +31,7 @@ type Pool struct {
 
 type PoolConfig struct {
 	ServerAddr   string
+	Password     string
 	MaxConns     int // default:50
 	InvalidateCb InvalidateCbFunc
 	Logger       logger.Logger
@@ -44,6 +47,7 @@ func NewPool(cfg PoolConfig) *Pool {
 	}
 	return &Pool{
 		serverAddr:   cfg.ServerAddr,
+		password:     cfg.Password,
 		invalidateCb: cfg.InvalidateCb,
 		maxConnsCh:   make(chan struct{}, cfg.MaxConns),
 		logger:       cfg.Logger,
@@ -106,11 +110,25 @@ func (p *Pool) getConnFromPool() (*Conn, bool) {
 
 // dial create new connection
 func (p *Pool) dial(invalidCb InvalidateCbFunc) (*Conn, error) {
-	c, err := net.DialTimeout("tcp", p.serverAddr, 5*time.Second)
+	netConn, err := net.DialTimeout("tcp", p.serverAddr, 5*time.Second)
 	if err != nil {
 		return nil, err
 	}
-	return newConn(c, p, invalidCb), nil
+
+	conn := newConn(netConn, p, invalidCb)
+	if p.password != "" {
+		authArgs := make([]interface{}, 0, 2)
+
+		authArgs = append(authArgs, p.password)
+		resp, err := conn.Do(context.Background(), "AUTH", authArgs...)
+		if err != nil {
+			log.Printf("err:%v", err)
+			netConn.Close()
+			return nil, err
+		}
+		log.Printf("resp err:%v", resp.Err)
+	}
+	return conn, nil
 }
 
 // putConnBack put the connection back to the the end of the pool
