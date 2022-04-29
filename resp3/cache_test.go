@@ -1,7 +1,8 @@
-package rimcu
+package resp3
 
 import (
 	"context"
+	"github.com/iwanbk/rimcu/result"
 	"log"
 	"os"
 	"testing"
@@ -14,7 +15,7 @@ import (
 var (
 	testRedis6ServerAddr = "localhost:6379"
 	testExp              = 1000
-	syncTimeWait         = 1 * time.Second
+	syncTimeWait         = 500 * time.Millisecond
 )
 
 // Set will not init inmem cache
@@ -68,10 +69,10 @@ func TestStringsCache_Set_Invalidate(t *testing.T) {
 
 	// make sure initial condition, key1 must exists in memcache
 	{
-		_, ok := sc2.memGet(key1)
+		_, ok := sc2.memGet2(key1)
 		require.True(t, ok)
 
-		_, ok = sc3.memGet(key1)
+		_, ok = sc3.memGet2(key1)
 		require.True(t, ok)
 	}
 
@@ -96,6 +97,12 @@ func TestStringsCache_Set_Invalidate(t *testing.T) {
 
 }
 
+func checkStringEqual(t *testing.T, expected string, sr result.StringsResult) {
+	str, err := sr.String()
+	require.NoError(t, err)
+	require.Equal(t, expected, str)
+}
+
 // Get valid key must initiate inmem cache
 func TestStringsCache_Get_Valid_InitInMem(t *testing.T) {
 	ctx := context.Background()
@@ -117,7 +124,7 @@ func TestStringsCache_Get_Valid_InitInMem(t *testing.T) {
 
 		val, err := sc1.Get(ctx, key1, testExp)
 		require.NoError(t, err)
-		require.Equal(t, val1, val)
+		checkStringEqual(t, val1, val)
 	}
 
 	// make sure initial condition,
@@ -134,11 +141,11 @@ func TestStringsCache_Get_Valid_InitInMem(t *testing.T) {
 		// get
 		val, err := sc2.Get(ctx, key1, testExp)
 		require.NoError(t, err)
-		require.Equal(t, val1, val)
+		checkStringEqual(t, val1, val)
 
 		val, err = sc3.Get(ctx, key1, testExp)
 		require.NoError(t, err)
-		require.Equal(t, val1, val)
+		checkStringEqual(t, val1, val)
 	}
 
 	time.Sleep(syncTimeWait)
@@ -148,13 +155,13 @@ func TestStringsCache_Get_Valid_InitInMem(t *testing.T) {
 	{
 
 		// check
-		_, ok := sc1.memGet(key1)
+		_, ok := sc1.memGet2(key1)
 		require.True(t, ok)
 
-		_, ok = sc2.memGet(key1)
+		_, ok = sc2.memGet2(key1)
 		require.True(t, ok)
 
-		_, ok = sc3.memGet(key1)
+		_, ok = sc3.memGet2(key1)
 		require.True(t, ok)
 	}
 
@@ -227,10 +234,10 @@ func TestStringsCache_Del_ValidKey_Propagate(t *testing.T) {
 
 	// make sure initial condition, key1 must exists in memcache
 	{
-		_, ok := sc2.memGet(key1)
+		_, ok := sc2.memGet2(key1)
 		require.True(t, ok)
 
-		_, ok = sc3.memGet(key1)
+		_, ok = sc3.memGet2(key1)
 		require.True(t, ok)
 	}
 
@@ -258,6 +265,11 @@ func TestStringsCache_Del_ValidKey_Propagate(t *testing.T) {
 	}
 }
 
+// Simple MSet test
+// - generate random keys
+// - Get the keys, make sure they are not exist
+// - Mset the keys
+// - get it back
 func TestMset_Basic(t *testing.T) {
 	var (
 		ctx     = context.Background()
@@ -291,7 +303,8 @@ func TestMset_Basic(t *testing.T) {
 	for _, k := range keys {
 		v, err := sc2.Get(ctx, k, 10)
 		require.NoError(t, err)
-		require.Equal(t, val, v)
+
+		checkStringEqual(t, val, v)
 	}
 }
 
@@ -349,7 +362,7 @@ func generateRandomKey() string {
 
 func createStringsCacheTestClient(t *testing.T, numCli int) ([]*Cache, func()) {
 	var (
-		caches []*Cache
+		caches    []*Cache
 		redisAddr = testRedis6ServerAddr
 	)
 

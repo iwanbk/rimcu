@@ -1,6 +1,6 @@
 # rimcu - Redis server-assisted client side caching Go library
 
-[![Build Status](https://travis-ci.org/iwanbk/rimcu.svg?branch=master)](https://travis-ci.org/iwanbk/rimcu)
+![Build](https://github.com/github/docs/actions/workflows/test_lint.yml/badge.svg)
 [![codecov](https://codecov.io/gh/iwanbk/rimcu/branch/master/graph/badge.svg)](https://codecov.io/gh/iwanbk/rimcu)
 [![godoc](https://godoc.org/github.com/iwanbk/rimcu?status.svg)](http://godoc.org/github.com/iwanbk/rimcu)
 [![Maintainability](https://api.codeclimate.com/v1/badges/edbfa2013d2a8d2b74ce/maintainability)](https://codeclimate.com/github/iwanbk/rimcu/maintainability)
@@ -12,7 +12,10 @@ In other words, it is a combination of Redis cient library and in memory cache l
 **It is a work in progress, the API and the code can break any time**.
 
 It caches the Redis data in your server's RAM and sync it to Redis server when the data changed.
-So you don't need to always ask the Redis server to get your cache data. 
+So you don't need to always ask the Redis server to get your cache data.
+
+We categorize the cache based on the Redis data types mention in https://redis.io/docs/manual/data-types/.
+We need to do this because each type of cache will be stored differently.
 
 
 ## StringsCache

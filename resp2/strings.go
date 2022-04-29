@@ -3,6 +3,7 @@ package resp2
 import (
 	"context"
 	"errors"
+	"github.com/iwanbk/rimcu/result"
 
 	"github.com/iwanbk/rimcu/internal/redigo/redis"
 	"github.com/iwanbk/rimcu/logger"
@@ -93,18 +94,18 @@ func (sc *StringsCache) Setex(ctx context.Context, key string, val interface{}, 
 //
 // If the value not exists in the memory cache, it will try to get from the redis server
 // and set the expiration to the given expSecond
-func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) *StringResult {
+func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (result.StringsResult, error) {
 	// try to get from in memory cache
 	val, ok := sc.getMemCache(key)
 	if ok {
 		sc.logger.Debugf("GET: already in memcache")
-		return newStringResult(val, nil)
+		return newStringResult(val), nil
 	}
 
 	// get from redis
 	conn, err := sc.getConn(ctx)
 	if err != nil {
-		return newStringResult(nil, err)
+		return newStringResult(nil), err
 	}
 	defer conn.Close()
 
@@ -116,13 +117,13 @@ func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) *Str
 		if err == redis.ErrNil {
 			err = ErrNotFound
 		}
-		return newStringResult(val, err)
+		return newStringResult(val), err
 	}
 
 	// set to in-mem cache
 	sc.cc.Set(key, val, conn.ClientID(), expSecond)
 
-	return newStringResult(val, nil)
+	return newStringResult(val), nil
 }
 
 // Del deletes the key in both memory cache and redis server
