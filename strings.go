@@ -16,6 +16,7 @@ type StringsCache struct {
 type stringsCacheEngine interface {
 	Setex(ctx context.Context, key string, val interface{}, exp int) error
 	Get(ctx context.Context, key string, expSecond int) (result.StringsResult, error)
+	Del(ctx context.Context, key string) error
 }
 
 // StringsCacheConfig is the configuration of the StringsCache
@@ -65,4 +66,9 @@ func (sc *StringsCache) Setex(ctx context.Context, key string, val interface{}, 
 // it then put the value from server in the in memcache with the given expiration
 func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (result.StringsResult, error) {
 	return sc.engine.Get(ctx, key, expSecond)
+}
+
+// Del deletes the key in both memory cache and redis server
+func (sc *StringsCache) Del(ctx context.Context, key string) error {
+	return sc.engine.Del(ctx, key)
 }

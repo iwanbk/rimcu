@@ -15,7 +15,7 @@ func newStringResult(val interface{}) *StringResult {
 	}
 }
 
-// Bool returns boolean representation of the resul
+// Bool returns boolean representation of the result
 func (sr *StringResult) Bool() (bool, error) {
 	return redis.Bool(sr.val, nil)
 }
