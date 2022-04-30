@@ -7,25 +7,20 @@ import (
 // StringResult represents result of the strings cache read operation
 type StringResult struct {
 	val interface{}
-	err error
 }
 
-func newStringResult(val interface{}, err error) *StringResult {
+func newStringResult(val interface{}) *StringResult {
 	return &StringResult{
 		val: val,
-		err: err,
 	}
 }
 
-// Err returns error of the command result, if any
-func (sr *StringResult) Err() error {
-	return sr.err
+// Bool returns boolean representation of the result
+func (sr *StringResult) Bool() (bool, error) {
+	return redis.Bool(sr.val, nil)
 }
 
 // String returns string representation of the result
 func (sr *StringResult) String() (string, error) {
-	if sr.err != nil {
-		return "", sr.err
-	}
 	return redis.String(sr.val, nil)
 }

@@ -4,11 +4,14 @@ import (
 	"log"
 )
 
+// Logger defines interface that must be implemented by the user
+// who want to log the internal rimcu lib
 type Logger interface {
 	Debugf(format string, v ...interface{})
 	Errorf(format string, v ...interface{})
 }
 
+// NewDefaultLogger creates logger which doing nothing
 func NewDefault() Logger {
 	return &defaultLogger{}
 }

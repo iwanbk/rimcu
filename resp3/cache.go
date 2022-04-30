@@ -1,8 +1,10 @@
-package rimcu
+package resp3
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"github.com/iwanbk/rimcu/result"
 	"strconv"
 	"time"
 
@@ -10,6 +12,14 @@ import (
 	"github.com/iwanbk/rimcu/internal/resp3pool"
 	"github.com/iwanbk/rimcu/logger"
 	"github.com/karlseguin/ccache"
+)
+
+var (
+	// ErrNotFound returned when the value of the key is not exists
+	ErrNotFound = errors.New("not found")
+
+	// ErrInvalidArgs returned when the user pass invalid arguments to the func
+	ErrInvalidArgs = errors.New("invalid arguments")
 )
 
 // Cache represents in memory cache which sync the cache
@@ -75,22 +85,26 @@ func (c *Cache) Setex(ctx context.Context, key string, val interface{}, exp int)
 //
 // It gets from the redis server only if the value not exists in memory cache,
 // it then put the value from server in the in memcache with the given expiration
-func (c *Cache) Get(ctx context.Context, key string, exp int) (string, error) {
+func (c *Cache) Get(ctx context.Context, key string, exp int) (result.StringsResult, error) {
 	// get from mem, if exists
-	val, ok := c.memGet(key)
+	val, ok := c.memGet2(key)
 	if ok {
-		return val, nil
+		return newStringsResult(val), nil
 	}
 
-	val, err := c.getString(ctx, cmdGet, key)
+	resp, err := c.get(ctx, cmdGet, key)
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+	val = cacheVal{
+		typ: cacheTypString, // TODO : fix it, not all values are in string type
+		val: resp.Str,
 	}
 
 	// add to in mem cache
 	c.memSet(key, val, time.Duration(exp)*time.Second)
 
-	return val, nil
+	return newStringsResult(val), nil
 }
 
 // Del deletes the key in local and remote
@@ -210,17 +224,17 @@ func (c *Cache) _do(ctx context.Context, cmd interface{}, args ...interface{}) (
 	return resp, err
 }
 
-func (c *Cache) getString(ctx context.Context, cmd, key interface{}, args ...interface{}) (string, error) {
+func (c *Cache) get(ctx context.Context, cmd, key interface{}, args ...interface{}) (*resp3.Value, error) {
 	resp, err := c.do(ctx, cmd, key, args...)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if c.isNullString(resp) {
-		return "", ErrNotFound
+		return nil, ErrNotFound
 	}
 
-	return resp.Str, nil
+	return resp, nil
 }
 
 func (c *Cache) isNullString(resp *resp3.Value) bool {
@@ -230,13 +244,26 @@ func (c *Cache) isNullString(resp *resp3.Value) bool {
 // memSet sets the value of the given key.
 //
 // it also add the key to the slots map
-func (c *Cache) memSet(key, val string, exp time.Duration) {
+func (c *Cache) memSet(key string, val interface{}, exp time.Duration) {
 	// add in cache
 	c.memcache.Set(key, val, exp)
 }
 
 func (c *Cache) memDel(key string) {
 	c.memcache.Delete(key)
+}
+
+func (c *Cache) memGet2(key string) (cacheVal, bool) {
+	item := c.memcache.Get(key)
+	if item == nil {
+		return cacheVal{}, false
+	}
+	if item.Expired() {
+		c.memcache.Delete(key)
+		return cacheVal{}, false
+	}
+
+	return item.Value().(cacheVal), true
 }
 
 func (c *Cache) memGet(key string) (string, bool) {
@@ -256,3 +283,12 @@ func (c *Cache) memGet(key string) (string, bool) {
 func (c *Cache) invalidate(key string) {
 	c.memDel(key)
 }
+
+const (
+	cmdSet    = "SET"
+	cmdGet    = "GET"
+	cmdDel    = "DEL"
+	cmdAppend = "APPEND"
+	cmdMSet   = "MSET"
+	cmdMGet   = "MGET"
+)
