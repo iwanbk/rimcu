@@ -8,14 +8,17 @@ import (
 	"github.com/iwanbk/rimcu/result"
 )
 
+// StringsCache is Rimcu client for the strings redis data type
 type StringsCache struct {
 	engine stringsCacheEngine
 }
 
 type stringsCacheEngine interface {
+	Setex(ctx context.Context, key string, val interface{}, exp int) error
 	Get(ctx context.Context, key string, expSecond int) (result.StringsResult, error)
 }
 
+// StringsCacheConfig is the configuration of the StringsCache
 type StringsCacheConfig struct {
 	CacheSize  int
 	CacheTTL   int
@@ -49,6 +52,17 @@ func newStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 	}, nil
 }
 
+// Setex sets the key to hold the string value with the given expiration second.
+//
+// Calling this func will invalidate inmem cache of this key's slot in other nodes.
+func (sc *StringsCache) Setex(ctx context.Context, key string, val interface{}, exp int) error {
+	return sc.engine.Setex(ctx, key, val, exp)
+}
+
+// Get gets the value of key.
+//
+// It gets from the redis server only if the value not exists in memory cache,
+// it then put the value from server in the in memcache with the given expiration
 func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (result.StringsResult, error) {
 	return sc.engine.Get(ctx, key, expSecond)
 }

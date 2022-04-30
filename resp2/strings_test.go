@@ -201,7 +201,9 @@ func TestStringsCache_Get_Invalid_NotInitInMem(t *testing.T) {
 	// do the action : get key that not exists
 	{
 		// get
-		_, err := sc1.Get(ctx, key1, testExpSecond)
+		resp, err := sc1.Get(ctx, key1, testExpSecond)
+		require.NoError(t, err)
+		_, err = resp.String()
 		require.Error(t, err)
 	}
 

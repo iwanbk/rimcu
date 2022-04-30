@@ -109,11 +109,9 @@ func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (res
 	}
 	defer conn.Close()
 
-	//sc.logger.Debugf("CLIENT ID=%v", conn.ClientID())
-
-	val, err = redis.String(conn.Do("GET", key))
-	if err != nil {
-		sc.logger.Debugf("GET failed: %v", err)
+	val, err = conn.Do("GET", key)
+	if err != nil || val == nil {
+		sc.logger.Debugf("GET val:%v, err: %v", val, err)
 		if err == redis.ErrNil {
 			err = ErrNotFound
 		}
