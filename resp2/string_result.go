@@ -6,12 +6,14 @@ import (
 
 // StringResult represents result of the strings cache read operation
 type StringResult struct {
-	val interface{}
+	val            interface{}
+	fromLocalCache bool
 }
 
-func newStringResult(val interface{}) *StringResult {
+func newStringResult(val interface{}, fromLocalCache bool) *StringResult {
 	return &StringResult{
-		val: val,
+		val:            val,
+		fromLocalCache: fromLocalCache,
 	}
 }
 
@@ -23,4 +25,10 @@ func (sr *StringResult) Bool() (bool, error) {
 // String returns string representation of the result
 func (sr *StringResult) String() (string, error) {
 	return redis.String(sr.val, nil)
+}
+
+// FromLocalCache returns true if this result was coming from
+// the local inmemory cache
+func (sr *StringResult) FromLocalCache() bool {
+	return sr.fromLocalCache
 }

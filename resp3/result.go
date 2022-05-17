@@ -3,14 +3,16 @@ package resp3
 import "fmt"
 
 type StringsResult struct {
-	typ cacheTyp
-	val interface{}
+	typ            cacheTyp
+	val            interface{}
+	fromLocalCache bool
 }
 
-func newStringsResult(cv cacheVal) *StringsResult {
+func newStringsResult(cv cacheVal, fromLocalCache bool) *StringsResult {
 	return &StringsResult{
-		typ: cv.typ,
-		val: cv.val,
+		typ:            cv.typ,
+		val:            cv.val,
+		fromLocalCache: fromLocalCache,
 	}
 }
 
@@ -19,6 +21,10 @@ func (sr *StringsResult) Bool() (bool, error) {
 		return false, fmt.Errorf("not boolean")
 	}
 	return sr.val.(bool), nil
+}
+
+func (sr *StringsResult) FromLocalCache() bool {
+	return sr.fromLocalCache
 }
 
 func (sr *StringsResult) String() (string, error) {
