@@ -2,6 +2,7 @@ package rimcu
 
 import (
 	"context"
+
 	"github.com/iwanbk/rimcu/logger"
 	"github.com/iwanbk/rimcu/resp2"
 	"github.com/iwanbk/rimcu/resp3"
@@ -21,11 +22,11 @@ type stringsCacheEngine interface {
 
 // StringsCacheConfig is the configuration of the StringsCache
 type StringsCacheConfig struct {
-	CacheSize  int
-	CacheTTL   int
-	protocol   Protocol
-	serverAddr string
-	logger     logger.Logger
+	CacheSize   int
+	CacheTTLSec int
+	protocol    Protocol
+	serverAddr  string
+	logger      logger.Logger
 }
 
 func newStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
@@ -33,6 +34,13 @@ func newStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 		engine stringsCacheEngine
 		err    error
 	)
+	if cfg.CacheSize <= 0 {
+		cfg.CacheSize = defaultCacheSize
+	}
+	if cfg.CacheTTLSec <= 0 {
+		cfg.CacheTTLSec = defaultCacheTTLSec
+	}
+
 	if cfg.protocol == ProtoResp3 {
 		engine = resp3.New(resp3.Config{
 			ServerAddr: cfg.serverAddr,
@@ -40,6 +48,7 @@ func newStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 		})
 	} else {
 		engine, err = resp2.NewStringsCache(resp2.StringsCacheConfig{
+			CacheSize:  cfg.CacheSize,
 			ServerAddr: cfg.serverAddr,
 			Logger:     cfg.logger,
 		})
@@ -55,7 +64,7 @@ func newStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 
 // Setex sets the key to hold the string value with the given expiration second.
 //
-// Calling this func will invalidate inmem cache of this key's slot in other nodes.
+// Calling this func will invalidate inmem cache of this key's slot in all nodes
 func (sc *StringsCache) Setex(ctx context.Context, key string, val interface{}, exp int) error {
 	return sc.engine.Setex(ctx, key, val, exp)
 }

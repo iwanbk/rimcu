@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/iwanbk/rimcu/internal/crc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,7 +47,6 @@ func TestConn(t *testing.T) {
 		val1 = "val_1"
 		val2 = "val_2"
 	)
-	log.Printf("key crc = %v", crc.RedisCrc([]byte(key1)))
 
 	err = c1.setex(key1, val1, exp)
 	require.NoError(t, err)

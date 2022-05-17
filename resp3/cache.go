@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/iwanbk/rimcu/result"
 	"strconv"
 	"time"
+
+	"github.com/iwanbk/rimcu/result"
 
 	"github.com/iwanbk/resp3"
 	"github.com/iwanbk/rimcu/internal/resp3pool"
@@ -89,7 +90,7 @@ func (c *Cache) Get(ctx context.Context, key string, exp int) (result.StringsRes
 	// get from mem, if exists
 	val, ok := c.memGet2(key)
 	if ok {
-		return newStringsResult(val), nil
+		return newStringsResult(val, true), nil
 	}
 
 	resp, err := c.get(ctx, cmdGet, key)
@@ -104,7 +105,7 @@ func (c *Cache) Get(ctx context.Context, key string, exp int) (result.StringsRes
 	// add to in mem cache
 	c.memSet(key, val, time.Duration(exp)*time.Second)
 
-	return newStringsResult(val), nil
+	return newStringsResult(val, false), nil
 }
 
 // Del deletes the key in local and remote

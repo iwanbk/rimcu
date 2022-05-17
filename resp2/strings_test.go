@@ -17,48 +17,6 @@ var (
 	syncTimeWait  = 1 * time.Second
 )
 
-// Test Set initiate in memory cache
-func TestStringsCache_Set_InitInMem(t *testing.T) {
-	clis, cleanup := createStringsCacheClient(t, 1)
-	defer cleanup()
-
-	var (
-		cli1      = clis[0]
-		key1      = generateRandomKey()
-		val1      = "val1"
-		expSecond = 100
-		ctx       = context.Background()
-	)
-
-	// Test Init
-	{
-
-	}
-
-	// make sure initial condition
-	{
-		val, ok := cli1.getMemCache(key1)
-		require.False(t, ok)
-		require.Empty(t, val)
-	}
-
-	// do action
-	{
-		// - set from client1
-		err := cli1.Setex(ctx, key1, val1, expSecond)
-		require.NoError(t, err)
-
-	}
-
-	// check expected condition
-	{
-		val, ok := cli1.getMemCache(key1)
-		require.True(t, ok)
-		require.Equal(t, val1, val)
-	}
-
-}
-
 // Test that Set will invalidate memcache in other nodes
 func TestStringsCache_Set_Invalidate(t *testing.T) {
 	ctx := context.Background()

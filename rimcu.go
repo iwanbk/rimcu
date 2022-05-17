@@ -39,12 +39,15 @@ type Config struct {
 type Rimcu struct {
 	serverAddr string
 	logger     logger.Logger
+	protocol   Protocol
 }
 
 // New creates a new Rimcu redis client
 func New(cfg Config) *Rimcu {
 	return &Rimcu{
-		logger: cfg.Logger,
+		serverAddr: cfg.ServerAddr,
+		logger:     cfg.Logger,
+		protocol:   cfg.Protocol,
 	}
 }
 
@@ -54,3 +57,8 @@ func (r *Rimcu) NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 	cfg.serverAddr = r.serverAddr
 	return newStringsCache(cfg)
 }
+
+const (
+	defaultCacheSize   = 100000
+	defaultCacheTTLSec = 60 * 20
+)
