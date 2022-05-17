@@ -4,9 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/iwanbk/rimcu/result"
 	"strconv"
 	"time"
+
+	"github.com/iwanbk/rimcu/result"
 
 	"github.com/iwanbk/resp3"
 	"github.com/iwanbk/rimcu/internal/resp3pool"
