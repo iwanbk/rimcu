@@ -31,7 +31,7 @@ func TestStringsCache_Set_Invalidate(t *testing.T) {
 		val2     = "val_2"
 	)
 
-	time.Sleep(2 * time.Second)
+	time.Sleep(syncTimeWait)
 
 	{ // Test initialization, get the value to activate listening
 		// Set
@@ -251,6 +251,12 @@ func createStringsCacheClient(t *testing.T, numCli int) ([]*StringsCache, func()
 			ServerAddr: serverAddr,
 			CacheSize:  10000,
 			Logger:     &debugLogger{},
+			/*Mode:       ModeClusterProxy,
+			ClusterNodes: []string{
+				"127.0.0.1:7004",
+				"127.0.0.1:7005",
+				"127.0.0.1:7006",
+			},*/
 		})
 		require.NoError(t, err)
 		caches = append(caches, cli)

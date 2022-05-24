@@ -3,6 +3,7 @@ package resp2
 import (
 	"context"
 	"errors"
+	"log"
 
 	"github.com/iwanbk/rimcu/result"
 
@@ -35,13 +36,39 @@ type StringsCacheConfig struct {
 	CacheTTL int
 	// Logger for this lib, if nil will use Go log package which only print log on error
 	Logger logger.Logger
+
+	// ClusterNodes is a list of cluster nodes
+	// only being used by ProtoResp2ClusterProxy protocol.
+	// We currently need to list all of the slave IPs
+	// TODO: make it auto detect cluster nodes
+	ClusterNodes []string
+
+	Mode Mode
 }
 
-// NewStringsCache creates new StringsCache object
-func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
+// Mode represents the mode of the cache
+type Mode string
 
+const (
+	// ModeSingle is single redis mode
+	ModeSingle Mode = "single"
+
+	// ModeClusterProxy is a mode for redis cluster with front proxy like predixy
+	ModeClusterProxy Mode = "cluster-proxy"
+)
+
+// NewStringsCache creates new StringsCache object
+// TODO: support for rimcu's global pool
+func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = logger.NewDefault()
+	}
+	if cfg.Mode == "" {
+		cfg.Mode = ModeSingle
+	}
+
+	if cfg.Mode == ModeSingle {
+		cfg.ClusterNodes = []string{cfg.ServerAddr}
 	}
 
 	cfg.Logger.Debugf("cfg:%#v", cfg)
@@ -51,20 +78,34 @@ func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 		cc:     newCache(cfg.CacheSize),
 	}
 
+	// TODO: support for user supplied pool
 	pool := &redis.Pool{
 		Dial: func() (redis.Conn, error) {
 			return redis.Dial("tcp", cfg.ServerAddr, redis.DialCloseCb(sc.redisConnCloseCb))
 		},
-		MaxActive: 100,
+		MaxActive: 100, // TODO: make it from config
 		MaxIdle:   100,
 	}
 	sc.pool = pool
 
-	sc.pool.DialCb = sc.dialCb
+	sc.pool.DialCb = sc.dialCb // TODO: it can't be nil
 
-	sc.notifSubscriber = newNotifSubcriber(pool, sc.handleNotif, sc.handleNotifDisconnect, cfg.Logger)
+	var notifPools []*redis.Pool
 
-	return sc, sc.notifSubscriber.runSubscriber()
+	for _, clusterNode := range cfg.ClusterNodes {
+		node := clusterNode
+		pool := &redis.Pool{
+			Dial: func() (redis.Conn, error) {
+				cfg.Logger.Debugf("[notif]dialing: %v", node)
+				return redis.Dial("tcp", node, redis.DialCloseCb(sc.redisConnCloseCb))
+			},
+		}
+		notifPools = append(notifPools, pool)
+	}
+
+	sc.notifSubscriber = newNotifSubcriber(sc.handleNotif, sc.handleNotifDisconnect, cfg.Logger)
+
+	return sc, sc.notifSubscriber.run(notifPools)
 }
 
 // Close closes the cache, release all resources
@@ -111,6 +152,7 @@ func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (res
 	// get from redis
 	conn, err := sc.getConn(ctx)
 	if err != nil {
+		log.Printf("failed to get conn:%v", err)
 		return newStringResult(nil, false), err
 	}
 	defer conn.Close()
@@ -155,13 +197,15 @@ func (sc *StringsCache) getConn(ctx context.Context) (*redis.ActiveConn, error) 
 }
 
 func (sc *StringsCache) dialCb(ctx context.Context, conn redis.Conn) error {
-	_, err := conn.Do("CLIENT", "TRACKING", "on", "REDIRECT", sc.notifSubscriber.clientID)
+	//log.Printf("dial CB OUT")
+	return nil
+	/*_, err := conn.Do("CLIENT", "TRACKING", "on", "REDIRECT", sc.notifSubscriber.clientID)
 
 	if err != nil {
 		sc.logger.Errorf("dial CB failed: %v", err)
 	}
 
-	return err
+	return err*/
 }
 
 // redisConnCloseCb is callback to be called when the underlying redis connection
@@ -179,5 +223,6 @@ func (sc *StringsCache) handleNotifDisconnect() {
 
 // handleNotif handle raw notification from the redis
 func (sc *StringsCache) handleNotif(key string) {
+	sc.logger.Debugf("[rimcu]got notif: %v", key)
 	sc.cc.Del(key)
 }
