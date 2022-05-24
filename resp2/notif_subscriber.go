@@ -8,7 +8,7 @@ import (
 )
 
 type notifSubcriber struct {
-	pool              *redis.Pool
+	//pool              *redis.Pool
 	finishedCh        chan struct{}
 	logger            logger.Logger
 	disconnectHandler func()
@@ -16,10 +16,10 @@ type notifSubcriber struct {
 	clientID          int64
 }
 
-func newNotifSubcriber(pool *redis.Pool, notifHandler func(string), disconnectHandler func(),
+func newNotifSubcriber(notifHandler func(string), disconnectHandler func(),
 	logger logger.Logger) *notifSubcriber {
 	ns := &notifSubcriber{
-		pool:              pool,
+		//pool:              pool,
 		finishedCh:        make(chan struct{}),
 		logger:            logger,
 		notifHandler:      notifHandler,
@@ -32,8 +32,18 @@ func newNotifSubcriber(pool *redis.Pool, notifHandler func(string), disconnectHa
 func (ns *notifSubcriber) Close() {
 	ns.finishedCh <- struct{}{}
 }
-func (ns *notifSubcriber) runSubscriber() error {
-	subscriberDoneCh, err := ns.startSub()
+
+func (ns *notifSubcriber) run(pools []*redis.Pool) error {
+	for _, pool := range pools {
+		if err := ns.runSubscriber(pool); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (ns *notifSubcriber) runSubscriber(pool *redis.Pool) error {
+	subscriberDoneCh, err := ns.startSub(pool)
 	if err != nil {
 		return err
 	}
@@ -49,7 +59,7 @@ func (ns *notifSubcriber) runSubscriber() error {
 				ns.disconnectHandler()
 
 				// start new subscriber
-				subscriberDoneCh, err = ns.startSub()
+				subscriberDoneCh, err = ns.startSub(pool)
 				if err != nil {
 					ns.logger.Errorf("failed to start subscriber: %v", err)
 				}
@@ -60,11 +70,11 @@ func (ns *notifSubcriber) runSubscriber() error {
 }
 
 // starts subscriber to listen to all of synchronization message sent by other nodes
-func (ns *notifSubcriber) startSub() (chan struct{}, error) {
+func (ns *notifSubcriber) startSub(pool *redis.Pool) (chan struct{}, error) {
 	doneCh := make(chan struct{})
 
 	// setup subscriber
-	sub, err := ns.subscribe()
+	sub, err := ns.subscribe(pool)
 	if err != nil {
 		close(doneCh)
 		return doneCh, err
@@ -137,9 +147,9 @@ func (ns *notifSubcriber) startSub() (chan struct{}, error) {
 }
 
 // subscribe to the notification channel
-func (ns *notifSubcriber) subscribe() (*redis.PubSubConn, error) {
+func (ns *notifSubcriber) subscribe(pool *redis.Pool) (*redis.PubSubConn, error) {
 	// get conn
-	conn := ns.pool.Get()
+	conn := pool.Get()
 
 	if err := conn.Err(); err != nil {
 		return nil, err
@@ -148,11 +158,18 @@ func (ns *notifSubcriber) subscribe() (*redis.PubSubConn, error) {
 	// get client ID
 	id, err := redis.Int64(conn.Do("CLIENT", "ID"))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("client ID failed: %v", err)
 	}
+
 	ns.logger.Debugf("client ID = %v", id)
 
 	ns.clientID = id
+
+	// set tracking
+	_, err = conn.Do("CLIENT", "TRACKING", "on", "REDIRECT", id, "BCAST")
+	if err != nil {
+		return nil, fmt.Errorf("client tracking failed:%v", err)
+	}
 
 	sub := &redis.PubSubConn{Conn: conn}
 

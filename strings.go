@@ -2,6 +2,7 @@ package rimcu
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/iwanbk/rimcu/logger"
 	"github.com/iwanbk/rimcu/resp2"
@@ -22,11 +23,12 @@ type stringsCacheEngine interface {
 
 // StringsCacheConfig is the configuration of the StringsCache
 type StringsCacheConfig struct {
-	CacheSize   int
-	CacheTTLSec int
-	protocol    Protocol
-	serverAddr  string
-	logger      logger.Logger
+	CacheSize    int
+	CacheTTLSec  int
+	protocol     Protocol
+	serverAddr   string
+	logger       logger.Logger
+	clusterNodes []string // TODO: make it only 1 listener
 }
 
 func newStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
@@ -41,18 +43,28 @@ func newStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 		cfg.CacheTTLSec = defaultCacheTTLSec
 	}
 
-	if cfg.protocol == ProtoResp3 {
+	switch cfg.protocol {
+	case ProtoResp3:
 		engine = resp3.New(resp3.Config{
 			ServerAddr: cfg.serverAddr,
 			Logger:     cfg.logger,
 		})
-	} else {
+	case ProtoResp2, ProtoResp2ClusterProxy:
+		var mode = resp2.ModeSingle
+		if cfg.protocol == ProtoResp2ClusterProxy {
+			mode = resp2.ModeClusterProxy
+		}
 		engine, err = resp2.NewStringsCache(resp2.StringsCacheConfig{
-			CacheSize:  cfg.CacheSize,
-			ServerAddr: cfg.serverAddr,
-			Logger:     cfg.logger,
+			CacheSize:    cfg.CacheSize,
+			ServerAddr:   cfg.serverAddr,
+			Logger:       cfg.logger,
+			ClusterNodes: cfg.clusterNodes,
+			Mode:         mode,
 		})
+	default:
+		err = fmt.Errorf("unknown protocol: %s", cfg.protocol)
 	}
+
 	if err != nil {
 		return nil, err
 	}
