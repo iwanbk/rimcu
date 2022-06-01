@@ -14,16 +14,18 @@ type notifSubcriber struct {
 	disconnectHandler func()
 	notifHandler      func(string)
 	clientID          int64
+	mode              Mode
 }
 
 func newNotifSubcriber(notifHandler func(string), disconnectHandler func(),
-	logger logger.Logger) *notifSubcriber {
+	mode Mode, logger logger.Logger) *notifSubcriber {
 	ns := &notifSubcriber{
 		//pool:              pool,
 		finishedCh:        make(chan struct{}),
 		logger:            logger,
 		notifHandler:      notifHandler,
 		disconnectHandler: disconnectHandler,
+		mode:              mode,
 	}
 	return ns
 }
@@ -165,10 +167,12 @@ func (ns *notifSubcriber) subscribe(pool *redis.Pool) (*redis.PubSubConn, error)
 
 	ns.clientID = id
 
-	// set tracking
-	_, err = conn.Do("CLIENT", "TRACKING", "on", "REDIRECT", id, "BCAST")
-	if err != nil {
-		return nil, fmt.Errorf("client tracking failed:%v", err)
+	if ns.mode == ModeClusterProxy {
+		// set tracking
+		_, err = conn.Do("CLIENT", "TRACKING", "on", "REDIRECT", id, "BCAST")
+		if err != nil {
+			return nil, fmt.Errorf("client tracking failed:%v", err)
+		}
 	}
 
 	sub := &redis.PubSubConn{Conn: conn}
