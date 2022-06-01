@@ -23,6 +23,7 @@ type StringsCache struct {
 	cc              *cache
 	notifSubscriber *notifSubcriber
 	logger          logger.Logger
+	mode            Mode
 }
 
 // StringsCacheConfig is config for the StringsCache
@@ -76,6 +77,7 @@ func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 	sc := &StringsCache{
 		logger: cfg.Logger,
 		cc:     newCache(cfg.CacheSize),
+		mode:   cfg.Mode,
 	}
 
 	// TODO: support for user supplied pool
@@ -103,7 +105,7 @@ func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 		notifPools = append(notifPools, pool)
 	}
 
-	sc.notifSubscriber = newNotifSubcriber(sc.handleNotif, sc.handleNotifDisconnect, cfg.Logger)
+	sc.notifSubscriber = newNotifSubcriber(sc.handleNotif, sc.handleNotifDisconnect, sc.mode, cfg.Logger)
 
 	return sc, sc.notifSubscriber.run(notifPools)
 }
@@ -192,20 +194,24 @@ func (sc *StringsCache) getMemCache(key string) (interface{}, bool) {
 }
 
 func (sc *StringsCache) getConn(ctx context.Context) (*redis.ActiveConn, error) {
-	return sc.pool.GetContextWithCallback(ctx)
+	if sc.mode == ModeSingle {
+		return sc.pool.GetContextWithCallback(ctx)
+	}
+	return sc.pool.GetContext(ctx)
 	// TODO: what if the pool dial callback failed? should we close this conn
 }
 
 func (sc *StringsCache) dialCb(ctx context.Context, conn redis.Conn) error {
-	//log.Printf("dial CB OUT")
-	return nil
-	/*_, err := conn.Do("CLIENT", "TRACKING", "on", "REDIRECT", sc.notifSubscriber.clientID)
+	if sc.mode == ModeClusterProxy {
+		return nil
+	}
+	_, err := conn.Do("CLIENT", "TRACKING", "on", "REDIRECT", sc.notifSubscriber.clientID)
 
 	if err != nil {
 		sc.logger.Errorf("dial CB failed: %v", err)
 	}
 
-	return err*/
+	return err
 }
 
 // redisConnCloseCb is callback to be called when the underlying redis connection

@@ -17,9 +17,10 @@ Redis 6 or newer, with it's client side caching feature
 It caches the Redis data in your server's RAM and sync it to Redis server when the data changed.
 So you don't need to always ask the Redis server to get your cache data.
 
-It supports two kind of Redis protocols:
-- RESP2: it is the default one
-- RESP3: not fully tested yet
+It supports three modes:
+- RESP2: single node Redis with RESP2 protocol, it is the default one
+- RESP2ClusterProxy: Redis cluster with RESP2 protocol and front proxy
+- RESP3: single node Redis with RESP3 protocol, not fully tested yet
 
 ## Examples
 
@@ -43,6 +44,7 @@ Connection Pool
 | Features                            | Status | Description                          |
 |-------------------------------------|--- |--------------------------------------|
 | Single Pool                         | :x: :wrench: | Single conn pool for all cache types |
+| Vanilla Redigo Pool                 | :x: :wrench: | Reuse vanilla redigo pool  |
 | Max Number of Connections           | :white_check_mark: |                                      |
 | Waiting for connection with timeout | :white_check_mark: |                                      |
 | Idle connection checking            |  :x: :wrench: |                                      | 
