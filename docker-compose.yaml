@@ -4,3 +4,10 @@ services:
     image: redis:6.0-alpine
     ports:
       - 6379:6379
+  redis-cluster:
+    image: grokzen/redis-cluster:latest
+    environment:
+     IP: 0.0.0.0
+     REDIS_CLUSTER_IP: 0.0.0.0 #this line is needed on mac
+    ports:
+      - '7000-7050:7000-7050'

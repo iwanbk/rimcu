@@ -7,6 +7,7 @@ import (
 
 	"github.com/iwanbk/rimcu/result"
 
+	"github.com/iwanbk/rimcu/internal/cluster"
 	"github.com/iwanbk/rimcu/internal/redigo/redis"
 	"github.com/iwanbk/rimcu/logger"
 )
@@ -44,6 +45,8 @@ type StringsCacheConfig struct {
 	// TODO: make it auto detect cluster nodes
 	ClusterNodes []string
 
+	Password string
+
 	Mode Mode
 }
 
@@ -68,10 +71,6 @@ func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 		cfg.Mode = ModeSingle
 	}
 
-	if cfg.Mode == ModeSingle {
-		cfg.ClusterNodes = []string{cfg.ServerAddr}
-	}
-
 	cfg.Logger.Debugf("cfg:%#v", cfg)
 
 	sc := &StringsCache{
@@ -92,14 +91,25 @@ func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 
 	sc.pool.DialCb = sc.dialCb // TODO: it can't be nil
 
-	var notifPools []*redis.Pool
+	var (
+		notifPools []*redis.Pool
+		opts       = []redis.DialOption{redis.DialCloseCb(sc.redisConnCloseCb)}
+	)
+	if cfg.Password != "" {
+		opts = append(opts, redis.DialPassword(cfg.Password))
+	}
 
-	for _, clusterNode := range cfg.ClusterNodes {
+	notifHosts, err := getNotifHost(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, clusterNode := range notifHosts {
 		node := clusterNode
 		pool := &redis.Pool{
 			Dial: func() (redis.Conn, error) {
 				cfg.Logger.Debugf("[notif]dialing: %v", node)
-				return redis.Dial("tcp", node, redis.DialCloseCb(sc.redisConnCloseCb))
+				return redis.Dial("tcp", node, opts...)
 			},
 		}
 		notifPools = append(notifPools, pool)
@@ -108,6 +118,22 @@ func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 	sc.notifSubscriber = newNotifSubcriber(sc.handleNotif, sc.handleNotifDisconnect, sc.mode, cfg.Logger)
 
 	return sc, sc.notifSubscriber.run(notifPools)
+}
+
+func getNotifHost(cfg StringsCacheConfig) ([]string, error) {
+	if cfg.Mode == ModeSingle {
+		return []string{cfg.ServerAddr}, nil
+	}
+	return getClusterMasters(cfg.ClusterNodes, cfg.Password)
+}
+
+func getClusterMasters(seeds []string, password string) ([]string, error) {
+	ex := cluster.NewExplorer(seeds, password)
+	ci, err := ex.Discover()
+	if err != nil {
+		return nil, err
+	}
+	return ci.Masters(), nil
 }
 
 // Close closes the cache, release all resources

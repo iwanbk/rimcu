@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/alicebob/miniredis"
 	"github.com/rs/xid"
 	"github.com/stretchr/testify/require"
 )
@@ -240,7 +239,6 @@ func createStringsCacheClient(t *testing.T, numCli int) ([]*StringsCache, func()
 	var (
 		caches     []*StringsCache
 		serverAddr = os.Getenv("TEST_REDIS_ADDRESS")
-		server     *miniredis.Miniredis
 	)
 
 	require.NotEmpty(t, serverAddr)
@@ -253,9 +251,7 @@ func createStringsCacheClient(t *testing.T, numCli int) ([]*StringsCache, func()
 			Logger:     &debugLogger{},
 			/*Mode:       ModeClusterProxy,
 			ClusterNodes: []string{
-				"127.0.0.1:7004",
-				"127.0.0.1:7005",
-				"127.0.0.1:7006",
+				"127.0.0.1:7001",
 			},*/
 		})
 		require.NoError(t, err)
@@ -263,9 +259,6 @@ func createStringsCacheClient(t *testing.T, numCli int) ([]*StringsCache, func()
 	}
 
 	return caches, func() {
-		if server != nil {
-			server.Close()
-		}
 		for _, cli := range caches {
 			cli.Close()
 		}

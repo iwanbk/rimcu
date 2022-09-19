@@ -29,6 +29,7 @@ type StringsCacheConfig struct {
 	serverAddr   string
 	logger       logger.Logger
 	clusterNodes []string // TODO: make it only 1 listener
+	password     string
 }
 
 func newStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
@@ -59,6 +60,7 @@ func newStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 			ServerAddr:   cfg.serverAddr,
 			Logger:       cfg.logger,
 			ClusterNodes: cfg.clusterNodes,
+			Password:     cfg.password,
 			Mode:         mode,
 		})
 	default:
