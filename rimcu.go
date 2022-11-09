@@ -43,8 +43,6 @@ type Config struct {
 
 	// ClusterNodes is a list of cluster nodes
 	// only being used by ProtoResp2ClusterProxy protocol.
-	// We currently need to list all of the slave IPs
-	// TODO: make it auto detect cluster nodes
 	ClusterNodes []string
 }
 

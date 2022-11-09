@@ -13,10 +13,12 @@ const (
 	roleSlave  = "slave"
 )
 
+// ClusterInfo stores all things related to the cluster
 type ClusterInfo struct {
 	Shards map[string]Shard
 }
 
+// Masters returns address of all the cluster master
 func (ci ClusterInfo) Masters() []string {
 	masters := make([]string, 0, len(ci.Shards))
 	for _, shard := range ci.Shards {
@@ -25,6 +27,7 @@ func (ci ClusterInfo) Masters() []string {
 	return masters
 }
 
+// Slaves returns address of all the cluster slaves
 func (ci ClusterInfo) Slaves() []string {
 	slaves := make([]string, 0, len(ci.Shards))
 	for _, shard := range ci.Shards {
@@ -33,11 +36,13 @@ func (ci ClusterInfo) Slaves() []string {
 	return slaves
 }
 
+// Shard represent a redis cluster shard
 type Shard struct {
 	Master Node
 	Slaves []Node
 }
 
+// Node represents a redis cluster node, could be master or slave
 type Node struct {
 	ID       string
 	Addr     string
