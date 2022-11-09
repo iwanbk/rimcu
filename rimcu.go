@@ -26,6 +26,9 @@ type Config struct {
 	// in case of RESP2ClusterProxy protocol, it is the address of the proxy
 	ServerAddr string
 
+	// Redis password
+	Password string
+
 	// size of the  in memory cache
 	// Default is 10K
 	CacheSize int
@@ -40,8 +43,6 @@ type Config struct {
 
 	// ClusterNodes is a list of cluster nodes
 	// only being used by ProtoResp2ClusterProxy protocol.
-	// We currently need to list all of the slave IPs
-	// TODO: make it auto detect cluster nodes
 	ClusterNodes []string
 }
 
@@ -52,6 +53,7 @@ type Rimcu struct {
 	logger       logger.Logger
 	protocol     Protocol
 	clusterNodes []string
+	password     string
 }
 
 // New creates a new Rimcu redis client
@@ -64,6 +66,7 @@ func New(cfg Config) *Rimcu {
 		logger:       cfg.Logger,
 		protocol:     cfg.Protocol,
 		clusterNodes: cfg.ClusterNodes,
+		password:     cfg.Password,
 	}
 }
 
@@ -73,6 +76,7 @@ func (r *Rimcu) NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 	cfg.serverAddr = r.serverAddr
 	cfg.protocol = r.protocol
 	cfg.clusterNodes = r.clusterNodes
+	cfg.password = r.password
 	return newStringsCache(cfg)
 }
 
