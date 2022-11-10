@@ -3,6 +3,7 @@ package resp2
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 
 	"github.com/iwanbk/rimcu/result"
@@ -10,6 +11,8 @@ import (
 	"github.com/iwanbk/rimcu/internal/cluster"
 	"github.com/iwanbk/rimcu/internal/redigo/redis"
 	"github.com/iwanbk/rimcu/logger"
+
+	oriredigo "github.com/gomodule/redigo/redis"
 )
 
 var (
@@ -21,10 +24,16 @@ var (
 // to synchronize data with the redis server.
 type StringsCache struct {
 	pool            *redis.Pool
+	dataPool        DataPool
 	cc              *cache
 	notifSubscriber *notifSubcriber
 	logger          logger.Logger
 	mode            Mode
+}
+
+// DataPool is the pool that connect with the redis cluster proxy
+type DataPool interface {
+	GetContext(ctx context.Context) (oriredigo.Conn, error)
 }
 
 // StringsCacheConfig is config for the StringsCache
@@ -45,7 +54,11 @@ type StringsCacheConfig struct {
 
 	Password string
 
+	// Single or cluster-proxy
 	Mode Mode
+
+	// DataPool is the pool that connect with the redis cluster proxy
+	DataPool DataPool
 }
 
 // Mode represents the mode of the cache
@@ -61,12 +74,22 @@ const (
 
 // NewStringsCache creates new StringsCache object
 // TODO: support for rimcu's global pool
+// some notes:
+// - [single mode] when notif subscribed disconnected, all local cache cleared
+// - [cluster-proxu] when notif subscriber of one node disconnected, all local cache cleared
 func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = logger.NewDefault()
 	}
 	if cfg.Mode == "" {
 		cfg.Mode = ModeSingle
+	}
+
+	// we don't allow empty pool in proxy mode
+	if cfg.Mode == ModeClusterProxy {
+		if cfg.DataPool == nil {
+			return nil, fmt.Errorf("nil data pool not allowed in proxy mode")
+		}
 	}
 
 	cfg.Logger.Debugf("cfg:%#v", cfg)
@@ -77,17 +100,20 @@ func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 		mode:   cfg.Mode,
 	}
 
-	// TODO: support for user supplied pool
-	pool := &redis.Pool{
-		Dial: func() (redis.Conn, error) {
-			return redis.Dial("tcp", cfg.ServerAddr, redis.DialCloseCb(sc.redisConnCloseCb))
-		},
-		MaxActive: 100, // TODO: make it from config
-		MaxIdle:   100,
+	if cfg.Mode == ModeSingle {
+		// TODO: make the pool config taken from the config
+		pool := &redis.Pool{
+			Dial: func() (redis.Conn, error) {
+				return redis.Dial("tcp", cfg.ServerAddr, redis.DialCloseCb(sc.redisConnCloseCb))
+			},
+			MaxActive: 100,
+			MaxIdle:   100,
+			DialCb:    sc.dialCb,
+		}
+		sc.pool = pool
+	} else {
+		sc.dataPool = cfg.DataPool
 	}
-	sc.pool = pool
-
-	sc.pool.DialCb = sc.dialCb // TODO: it can't be nil
 
 	var (
 		notifPools []*redis.Pool
@@ -102,6 +128,8 @@ func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 		return nil, err
 	}
 
+	// [single mode] notif host is that single host
+	// [cluster proxy] notif host is one node for each shard
 	for _, clusterNode := range notifHosts {
 		node := clusterNode
 		pool := &redis.Pool{
@@ -193,7 +221,7 @@ func (sc *StringsCache) Get(ctx context.Context, key string, expSecond int) (res
 	}
 
 	// set to in-mem cache
-	sc.cc.Set(key, val, conn.ClientID(), expSecond)
+	sc.cc.Set(key, val, getClientID(conn), expSecond)
 
 	return newStringResult(val, false), nil
 }
@@ -217,11 +245,11 @@ func (sc *StringsCache) getMemCache(key string) (interface{}, bool) {
 	return sc.cc.Get(key)
 }
 
-func (sc *StringsCache) getConn(ctx context.Context) (*redis.ActiveConn, error) {
+func (sc *StringsCache) getConn(ctx context.Context) (oriredigo.Conn, error) {
 	if sc.mode == ModeSingle {
 		return sc.pool.GetContextWithCallback(ctx)
 	}
-	return sc.pool.GetContext(ctx)
+	return sc.dataPool.GetContext(ctx)
 	// TODO: what if the pool dial callback failed? should we close this conn
 }
 
@@ -255,4 +283,11 @@ func (sc *StringsCache) handleNotifDisconnect() {
 func (sc *StringsCache) handleNotif(key string) {
 	sc.logger.Debugf("[rimcu]got notif: %v", key)
 	sc.cc.Del(key)
+}
+
+func getClientID(connObj interface{}) int64 {
+	if conn, ok := connObj.(*redis.ActiveConn); ok {
+		return conn.ClientID()
+	}
+	return 0
 }
