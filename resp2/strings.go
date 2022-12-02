@@ -86,10 +86,8 @@ func NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 	}
 
 	// we don't allow empty pool in proxy mode
-	if cfg.Mode == ModeClusterProxy {
-		if cfg.DataPool == nil {
-			return nil, fmt.Errorf("nil data pool not allowed in proxy mode")
-		}
+	if cfg.Mode == ModeClusterProxy && cfg.DataPool == nil {
+		return nil, fmt.Errorf("nil data pool not allowed in proxy mode")
 	}
 
 	cfg.Logger.Debugf("cfg:%#v", cfg)
