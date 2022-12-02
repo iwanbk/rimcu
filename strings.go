@@ -30,6 +30,7 @@ type StringsCacheConfig struct {
 	logger       logger.Logger
 	clusterNodes []string // TODO: make it only 1 listener
 	password     string
+	dataPool     resp2.DataPool
 }
 
 func newStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
@@ -62,6 +63,7 @@ func newStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 			ClusterNodes: cfg.clusterNodes,
 			Password:     cfg.password,
 			Mode:         mode,
+			DataPool:     cfg.dataPool,
 		})
 	default:
 		err = fmt.Errorf("unknown protocol: %s", cfg.protocol)

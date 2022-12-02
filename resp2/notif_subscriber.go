@@ -169,6 +169,8 @@ func (ns *notifSubcriber) subscribe(pool *redis.Pool) (*redis.PubSubConn, error)
 
 	if ns.mode == ModeClusterProxy {
 		// set tracking
+		// it is currently in broadcast mode
+		// TODO: support for the prefix tracking
 		_, err = conn.Do("CLIENT", "TRACKING", "on", "REDIRECT", id, "BCAST")
 		if err != nil {
 			return nil, fmt.Errorf("client tracking failed:%v", err)

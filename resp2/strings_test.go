@@ -241,7 +241,7 @@ func createStringsCacheClient(t *testing.T, numCli int) ([]*StringsCache, func()
 		serverAddr = os.Getenv("TEST_REDIS_ADDRESS")
 	)
 
-	require.NotEmpty(t, serverAddr)
+	require.NotEmptyf(t, serverAddr, "TEST_REDIS_ADDRESS env var is empty")
 
 	// set pool
 	for i := 0; i < numCli; i++ {

@@ -2,6 +2,7 @@ package rimcu
 
 import (
 	"github.com/iwanbk/rimcu/logger"
+	"github.com/iwanbk/rimcu/resp2"
 )
 
 // Protocol represents the underlying Redis protocol used by rimcu.
@@ -44,6 +45,8 @@ type Config struct {
 	// ClusterNodes is a list of cluster nodes
 	// only being used by ProtoResp2ClusterProxy protocol.
 	ClusterNodes []string
+
+	DataPool resp2.DataPool
 }
 
 // Rimcu is a redis client which implements client side caching.
@@ -54,6 +57,7 @@ type Rimcu struct {
 	protocol     Protocol
 	clusterNodes []string
 	password     string
+	dataPool     resp2.DataPool
 }
 
 // New creates a new Rimcu redis client
@@ -67,6 +71,7 @@ func New(cfg Config) *Rimcu {
 		protocol:     cfg.Protocol,
 		clusterNodes: cfg.ClusterNodes,
 		password:     cfg.Password,
+		dataPool:     cfg.DataPool,
 	}
 }
 
@@ -77,6 +82,7 @@ func (r *Rimcu) NewStringsCache(cfg StringsCacheConfig) (*StringsCache, error) {
 	cfg.protocol = r.protocol
 	cfg.clusterNodes = r.clusterNodes
 	cfg.password = r.password
+	cfg.dataPool = r.dataPool
 	return newStringsCache(cfg)
 }
 
